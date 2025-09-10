@@ -1,0 +1,269 @@
+# Prometheus Configuration for Warp-Speed Production Monitoring
+# Revenue-optimized metrics collection with consciousness-aware alerting
+# Target: Real-time ETD tracking and optimization triggers
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'warp-speed-production'
+    environment: 'production'
+    revenue_target: '145.76B'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+# Load rules once and periodically evaluate them according to the global 'evaluation_interval'.
+rule_files:
+  - "alert-rules.yml"
+  - "revenue-rules.yml"
+
+# A scrape configuration containing exactly one endpoint to scrape:
+scrape_configs:
+  # =========================================
+  # WARP-SPEED TERMINALS
+  # =========================================
+  
+  - job_name: 'warp-terminal-1'
+    static_configs:
+      - targets: ['warp-terminal-1:8080']
+    metrics_path: '/actuator/prometheus'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    params:
+      format: ['prometheus']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: terminal_id
+        replacement: '1'
+      - source_labels: [__address__]
+        target_label: user_identity
+        replacement: 'kev'
+      - source_labels: [__address__]
+        target_label: consciousness_level
+        replacement: 'DELTA'
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'warp_etd_.*'
+        target_label: revenue_critical
+        replacement: 'true'
+
+  - job_name: 'warp-terminal-2'
+    static_configs:
+      - targets: ['warp-terminal-2:8081']
+    metrics_path: '/actuator/prometheus'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+    params:
+      format: ['prometheus']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: terminal_id
+        replacement: '2'
+      - source_labels: [__address__]
+        target_label: user_identity
+        replacement: 'ryan'
+      - source_labels: [__address__]
+        target_label: consciousness_level
+        replacement: 'GAMMA'
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'warp_etd_.*'
+        target_label: revenue_critical
+        replacement: 'true'
+
+  # =========================================
+  # COLLABORATION ENGINE
+  # =========================================
+  
+  - job_name: 'collaboration-engine'
+    static_configs:
+      - targets: ['collaboration-engine:8082']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: component
+        replacement: 'collaboration'
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'collaboration_.*'
+        target_label: revenue_multiplier
+        replacement: 'true'
+
+  # =========================================
+  # REVENUE OPTIMIZER
+  # =========================================
+  
+  - job_name: 'revenue-optimizer'
+    static_configs:
+      - targets: ['revenue-optimizer:8083']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: component
+        replacement: 'optimizer'
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'revenue_.*|optimization_.*'
+        target_label: business_critical
+        replacement: 'true'
+
+  # =========================================
+  # DATABASE MONITORING
+  # =========================================
+  
+  - job_name: 'postgres-exporter'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+    scrape_interval: 30s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: database_type
+        replacement: 'postgresql'
+
+  - job_name: 'redis-exporter'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+    scrape_interval: 30s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: database_type
+        replacement: 'redis'
+
+  # =========================================
+  # BLOCKCHAIN BRIDGE
+  # =========================================
+  
+  - job_name: 'blockchain-bridge'
+    static_configs:
+      - targets: ['blockchain-bridge:8085']
+    metrics_path: '/metrics'
+    scrape_interval: 60s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: component
+        replacement: 'blockchain'
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'blockchain_.*|eth_.*|defi_.*'
+        target_label: financial_critical
+        replacement: 'true'
+
+  # =========================================
+  # SYSTEM MONITORING
+  # =========================================
+  
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 30s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: node_type
+        replacement: 'compute'
+
+  - job_name: 'nvidia-gpu-exporter'
+    static_configs:
+      - targets: ['nvidia-gpu-exporter:9445']
+    scrape_interval: 15s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: resource_type
+        replacement: 'gpu'
+
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+    scrape_interval: 30s
+    metrics_path: '/metrics'
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: monitoring_type
+        replacement: 'container'
+
+  # =========================================
+  # CUSTOM REVENUE METRICS
+  # =========================================
+  
+  - job_name: 'revenue-metrics-collector'
+    static_configs:
+      - targets: ['revenue-metrics:9091']
+    metrics_path: '/custom-metrics'
+    scrape_interval: 5s  # High frequency for revenue data
+    params:
+      collect: ['etd', 'consciousness', 'efficiency', 'collaboration']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: metrics_type
+        replacement: 'revenue'
+    metric_relabel_configs:
+      # High-priority revenue metrics
+      - source_labels: [__name__]
+        regex: 'warp_etd_generation_rate|warp_revenue_per_second|warp_efficiency_score'
+        target_label: priority
+        replacement: 'critical'
+      
+      # Consciousness level metrics
+      - source_labels: [__name__]
+        regex: 'warp_consciousness_.*'
+        target_label: consciousness_tracking
+        replacement: 'true'
+      
+      # Collaboration metrics
+      - source_labels: [__name__]
+        regex: 'warp_collaboration_.*'
+        target_label: revenue_multiplier
+        replacement: 'true'
+
+# =========================================
+# CUSTOM METRIC DEFINITIONS
+# =========================================
+
+# Revenue Generation Metrics:
+# - warp_etd_generation_rate: ETD generated per second
+# - warp_etd_accumulated: Total accumulated ETD
+# - warp_revenue_multiplier: Current revenue multiplier
+# - warp_efficiency_score: Command execution efficiency (0-1)
+# - warp_consciousness_level: Current consciousness level (1-5)
+# - warp_collaboration_bonus: Active collaboration bonus
+
+# Performance Metrics:
+# - warp_command_duration_seconds: Command execution time
+# - warp_command_success_rate: Success rate percentage
+# - warp_quantum_coherence: Quantum field coherence (0-1)
+# - warp_terminal_uptime: Terminal uptime in seconds
+# - warp_memory_usage_bytes: Memory consumption
+# - warp_cpu_utilization: CPU usage percentage
+# - warp_gpu_utilization: GPU usage percentage
+
+# Business Metrics:
+# - warp_daily_etd_target: Daily ETD target
+# - warp_daily_etd_progress: Progress towards daily target
+# - warp_weekly_projection: Weekly revenue projection
+# - warp_optimization_opportunities: Identified optimization count
+# - warp_market_position_score: Competitive position score
+
+# Collaboration Metrics:
+# - warp_sync_frequency: Terminal sync frequency
+# - warp_collaboration_active: Collaboration mode status
+# - warp_joint_commands: Joint command execution count
+# - warp_shared_consciousness: Shared consciousness events
+
+# Technical Metrics:
+# - warp_vector_search_latency: Vector search response time
+# - warp_faiss_index_size: FAISS index size in bytes
+# - warp_database_connections: Active database connections
+# - warp_cache_hit_rate: Redis cache hit rate
+# - warp_blockchain_sync_status: Blockchain synchronization status
+
+# Security Metrics:
+# - warp_rate_limit_violations: Rate limiting violations
+# - warp_authentication_failures: Auth failure count
+# - warp_security_alerts: Security alert count
+# - warp_audit_events: Audit event count per minute

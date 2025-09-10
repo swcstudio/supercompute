@@ -1,0 +1,31 @@
+name: AI Workflow Template
+description: Template for using AI-powered workflows in your repository
+iconName: robot
+categories:
+  - automation
+  - code-review
+  - continuous-integration
+filePatterns:
+  - ".*\\.ts$"
+  - ".*\\.tsx$"
+  - ".*\\.js$"
+  - ".*\\.jsx$"
+
+on:
+  issues:
+    types: [labeled]
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: AI Workflows Info
+        run: |
+          echo "This repository is configured with AI-powered workflows!"
+          echo "Available features:"
+          echo "- Label issues with 'ai-implement' for AI implementation"
+          echo "- Label issues with 'ai-decompose' for epic breakdown"
+          echo "- All PRs get automatic AI review"
+          echo "- Use 'skip-ai-review' label to skip AI review"

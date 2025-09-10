@@ -1,0 +1,498 @@
+name: AI Security Scanner
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+  push:
+    branches: [main, develop]
+  schedule:
+    - cron: '0 0 * * 0' # Weekly on Sunday
+  workflow_dispatch:
+    inputs:
+      scan_depth:
+        description: 'Scanning depth'
+        required: false
+        type: choice
+        options:
+          - quick
+          - standard
+          - deep
+          - paranoid
+        default: standard
+
+env:
+  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+      pull-requests: write
+      
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Setup Security Tools
+        run: |
+          npm install -g @anthropic-ai/sdk
+          pip install bandit safety
+          
+          # Install security scanning tools
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+          
+      - name: Run Traditional Security Scans
+        id: traditional_scan
+        continue-on-error: true
+        run: |
+          echo "Running traditional security scans..."
+          
+          # Dependency vulnerabilities
+          npm audit --json > npm-audit.json || true
+          safety check --json > safety-check.json || true
+          
+          # Code vulnerabilities
+          bandit -r . -f json -o bandit-report.json || true
+          
+          # Container vulnerabilities
+          if [ -f "Dockerfile" ]; then
+            trivy fs . --format json --output trivy-report.json || true
+          fi
+          
+          # Secrets detection
+          git secrets --scan > git-secrets.txt 2>&1 || true
+          
+      - name: AI Security Analysis
+        run: |
+          cat > ai-security-scan.js << 'EOF'
+          const { Anthropic } = require('@anthropic-ai/sdk');
+          const fs = require('fs');
+          const path = require('path');
+          const { execSync } = require('child_process');
+          
+          const anthropic = new Anthropic({
+            apiKey: process.env.ANTHROPIC_API_KEY,
+          });
+          
+          async function performSecurityScan() {
+            const scanDepth = process.env.SCAN_DEPTH || 'standard';
+            
+            // Collect all security-relevant files
+            const files = execSync('find . -type f \\( -name "*.js" -o -name "*.ts" -o -name "*.jsx" -o -name "*.tsx" -o -name "*.json" -o -name "*.yml" -o -name "*.yaml" -o -name "*.env*" -o -name "Dockerfile" -o -name "*.sh" \\) | grep -v node_modules | head -200')
+              .toString()
+              .split('\n')
+              .filter(Boolean);
+            
+            const vulnerabilities = [];
+            const scanLevels = {
+              quick: ['critical', 'high'],
+              standard: ['critical', 'high', 'medium'],
+              deep: ['critical', 'high', 'medium', 'low'],
+              paranoid: ['critical', 'high', 'medium', 'low', 'info']
+            };
+            
+            for (const file of files) {
+              if (!fs.existsSync(file)) continue;
+              
+              const content = fs.readFileSync(file, 'utf8');
+              const fileExt = path.extname(file);
+              
+              const prompt = `
+              You are Claude Code, an expert security researcher.
+              
+              Analyze this file for security vulnerabilities at ${scanDepth} depth.
+              Look for: ${scanLevels[scanDepth].join(', ')} severity issues.
+              
+              File: ${file}
+              Type: ${fileExt}
+              
+              Content:
+              \`\`\`
+              ${content.substring(0, 10000)} // Truncated for analysis
+              \`\`\`
+              
+              Identify:
+              1. **Authentication/Authorization Issues**
+                 - Broken authentication
+                 - Missing authorization checks
+                 - Privilege escalation
+                 - Session management flaws
+              
+              2. **Injection Vulnerabilities**
+                 - SQL injection
+                 - NoSQL injection
+                 - Command injection
+                 - Code injection
+                 - XSS (stored, reflected, DOM-based)
+                 - XXE injection
+              
+              3. **Data Exposure**
+                 - Hardcoded secrets/credentials
+                 - API keys in code
+                 - Sensitive data in logs
+                 - Information disclosure
+                 - Insecure data storage
+              
+              4. **Configuration Issues**
+                 - Security misconfigurations
+                 - Default credentials
+                 - Unnecessary features enabled
+                 - Missing security headers
+                 - CORS misconfigurations
+              
+              5. **Cryptographic Issues**
+                 - Weak encryption
+                 - Insecure random generation
+                 - Missing encryption
+                 - Certificate validation issues
+              
+              6. **Business Logic Flaws**
+                 - Race conditions
+                 - Time-of-check time-of-use
+                 - Insufficient rate limiting
+                 - Missing input validation
+              
+              7. **Dependencies & Supply Chain**
+                 - Vulnerable dependencies
+                 - Prototype pollution
+                 - Dependency confusion
+              
+              8. **API Security**
+                 - Broken object level authorization
+                 - Excessive data exposure
+                 - Missing rate limiting
+                 - Security misconfiguration
+              
+              For each vulnerability found, provide:
+              - Severity: CRITICAL/HIGH/MEDIUM/LOW/INFO
+              - Type: Category of vulnerability
+              - Location: Line number(s)
+              - Description: What the issue is
+              - Impact: Potential consequences
+              - Remediation: How to fix it
+              - Code example: Fixed code snippet
+              
+              Format as JSON array.
+              `;
+              
+              try {
+                const response = await anthropic.messages.create({
+                  model: 'claude-3-opus-20240229',
+                  max_tokens: 4000,
+                  messages: [{ role: 'user', content: prompt }],
+                });
+                
+                const responseText = response.content[0].text;
+                
+                // Extract JSON from response
+                const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+                if (jsonMatch) {
+                  const fileVulns = JSON.parse(jsonMatch[0]);
+                  fileVulns.forEach(vuln => {
+                    vuln.file = file;
+                    vulnerabilities.push(vuln);
+                  });
+                }
+              } catch (error) {
+                console.error(`Error analyzing ${file}:`, error.message);
+              }
+              
+              // Rate limiting
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+            
+            return vulnerabilities;
+          }
+          
+          async function analyzeSpecialCases() {
+            const specialVulns = [];
+            
+            // Check for common security anti-patterns
+            const antiPatterns = [
+              {
+                pattern: /eval\s*\(/g,
+                severity: 'CRITICAL',
+                type: 'Code Injection',
+                description: 'Use of eval() can lead to code injection'
+              },
+              {
+                pattern: /innerHTML\s*=/g,
+                severity: 'HIGH',
+                type: 'XSS',
+                description: 'Direct innerHTML assignment can lead to XSS'
+              },
+              {
+                pattern: /document\.write/g,
+                severity: 'HIGH',
+                type: 'XSS',
+                description: 'document.write can lead to XSS vulnerabilities'
+              },
+              {
+                pattern: /crypto\.createCipher/g,
+                severity: 'HIGH',
+                type: 'Cryptography',
+                description: 'Deprecated cipher method, use createCipheriv instead'
+              },
+              {
+                pattern: /Math\.random\(\)/g,
+                severity: 'MEDIUM',
+                type: 'Cryptography',
+                description: 'Math.random() is not cryptographically secure'
+              }
+            ];
+            
+            const files = execSync('find . -type f \\( -name "*.js" -o -name "*.ts" -o -name "*.jsx" -o -name "*.tsx" \\) | grep -v node_modules')
+              .toString()
+              .split('\n')
+              .filter(Boolean);
+            
+            for (const file of files) {
+              if (!fs.existsSync(file)) continue;
+              
+              const content = fs.readFileSync(file, 'utf8');
+              const lines = content.split('\n');
+              
+              antiPatterns.forEach(({ pattern, severity, type, description }) => {
+                let match;
+                while ((match = pattern.exec(content)) !== null) {
+                  const lineNumber = content.substring(0, match.index).split('\n').length;
+                  specialVulns.push({
+                    file,
+                    severity,
+                    type,
+                    location: lineNumber,
+                    description,
+                    impact: 'Security vulnerability detected by pattern matching',
+                    remediation: 'Review and replace with secure alternative'
+                  });
+                }
+              });
+            }
+            
+            return specialVulns;
+          }
+          
+          Promise.all([
+            performSecurityScan(),
+            analyzeSpecialCases()
+          ])
+            .then(([aiVulns, patternVulns]) => {
+              const allVulns = [...aiVulns, ...patternVulns];
+              
+              // Sort by severity
+              const severityOrder = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3, INFO: 4 };
+              allVulns.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity]);
+              
+              fs.writeFileSync('ai-security-report.json', JSON.stringify(allVulns, null, 2));
+              
+              // Generate summary
+              const summary = {
+                total: allVulns.length,
+                critical: allVulns.filter(v => v.severity === 'CRITICAL').length,
+                high: allVulns.filter(v => v.severity === 'HIGH').length,
+                medium: allVulns.filter(v => v.severity === 'MEDIUM').length,
+                low: allVulns.filter(v => v.severity === 'LOW').length,
+                info: allVulns.filter(v => v.severity === 'INFO').length
+              };
+              
+              fs.writeFileSync('security-summary.json', JSON.stringify(summary, null, 2));
+              
+              console.log('Security scan complete:', summary);
+            })
+            .catch(console.error);
+          EOF
+          
+          SCAN_DEPTH="${{ github.event.inputs.scan_depth || 'standard' }}" node ai-security-scan.js
+          
+      - name: Generate Security Report
+        run: |
+          cat > generate-report.js << 'EOF'
+          const fs = require('fs');
+          
+          const aiReport = JSON.parse(fs.readFileSync('ai-security-report.json', 'utf8'));
+          const summary = JSON.parse(fs.readFileSync('security-summary.json', 'utf8'));
+          
+          let report = `# 🔒 AI Security Scan Report
+          
+          ## Summary
+          
+          | Severity | Count | Action Required |
+          |----------|-------|-----------------|
+          | 🔴 CRITICAL | ${summary.critical} | Immediate fix required |
+          | 🟠 HIGH | ${summary.high} | Fix before deployment |
+          | 🟡 MEDIUM | ${summary.medium} | Fix soon |
+          | 🔵 LOW | ${summary.low} | Fix when possible |
+          | ⚪ INFO | ${summary.info} | Review |
+          | **TOTAL** | **${summary.total}** | |
+          
+          `;
+          
+          if (summary.critical > 0 || summary.high > 0) {
+            report += `## ⚠️  SECURITY ALERT
+          
+          This scan found ${summary.critical + summary.high} critical/high severity vulnerabilities that must be addressed immediately.
+          
+          `;
+          }
+          
+          // Group by severity
+          ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO'].forEach(severity => {
+            const vulns = aiReport.filter(v => v.severity === severity);
+            if (vulns.length === 0) return;
+            
+            report += `## ${severity} Severity Issues (${vulns.length})\n\n`;
+            
+            vulns.forEach((vuln, index) => {
+              report += `### ${index + 1}. ${vuln.type} in ${vuln.file}\n\n`;
+              report += `**Location**: Line ${vuln.location || 'N/A'}\n\n`;
+              report += `**Description**: ${vuln.description}\n\n`;
+              report += `**Impact**: ${vuln.impact}\n\n`;
+              report += `**Remediation**: ${vuln.remediation}\n\n`;
+              
+              if (vuln.code_example) {
+                report += `**Example Fix**:\n\`\`\`javascript\n${vuln.code_example}\n\`\`\`\n\n`;
+              }
+              
+              report += '---\n\n';
+            });
+          });
+          
+          report += `## Recommendations
+          
+          1. **Immediate Actions**:
+             - Fix all CRITICAL vulnerabilities before any deployment
+             - Review and fix HIGH severity issues
+             - Enable security headers and CORS properly
+          
+          2. **Security Best Practices**:
+             - Implement input validation on all user inputs
+             - Use parameterized queries for database operations
+             - Implement proper authentication and authorization
+             - Keep all dependencies up to date
+             - Use secure communication (HTTPS)
+             - Implement rate limiting on APIs
+          
+          3. **Next Steps**:
+             - Run \`npm audit fix\` to fix dependency vulnerabilities
+             - Review and implement the suggested remediations
+             - Set up automated security scanning in CI/CD
+             - Consider security training for the development team
+          
+          ## SARIF Output
+          
+          A SARIF (Static Analysis Results Interchange Format) file has been generated for integration with GitHub Security tab.
+          
+          ---
+          
+          *This security scan was performed by Claude Code AI*
+          *Scan depth: ${{ github.event.inputs.scan_depth || 'standard' }}*
+          *Generated: ${new Date().toISOString()}*
+          `;
+          
+          fs.writeFileSync('SECURITY_REPORT.md', report);
+          
+          // Generate SARIF format for GitHub Security
+          const sarif = {
+            version: '2.1.0',
+            runs: [{
+              tool: {
+                driver: {
+                  name: 'Claude Code Security Scanner',
+                  version: '1.0.0',
+                  rules: []
+                }
+              },
+              results: aiReport.map((vuln, index) => ({
+                ruleId: `AI-${vuln.type.replace(/\s+/g, '-')}-${index}`,
+                level: vuln.severity.toLowerCase() === 'critical' ? 'error' : 
+                       vuln.severity.toLowerCase() === 'high' ? 'error' :
+                       vuln.severity.toLowerCase() === 'medium' ? 'warning' : 'note',
+                message: {
+                  text: `${vuln.description} - ${vuln.impact}`
+                },
+                locations: [{
+                  physicalLocation: {
+                    artifactLocation: {
+                      uri: vuln.file
+                    },
+                    region: {
+                      startLine: vuln.location || 1
+                    }
+                  }
+                }],
+                fixes: [{
+                  description: {
+                    text: vuln.remediation
+                  }
+                }]
+              }))
+            }]
+          };
+          
+          fs.writeFileSync('security-scan.sarif', JSON.stringify(sarif, null, 2));
+          EOF
+          
+          node generate-report.js
+          
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: security-scan.sarif
+          
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('SECURITY_REPORT.md', 'utf8');
+            const summary = JSON.parse(fs.readFileSync('security-summary.json', 'utf8'));
+            
+            // Create a concise comment
+            let comment = '## 🔒 AI Security Scan Results\n\n';
+            
+            if (summary.critical > 0 || summary.high > 0) {
+              comment += '❌ **Security issues found!**\n\n';
+            } else if (summary.medium > 0) {
+              comment += '⚠️  **Medium severity issues found**\n\n';
+            } else {
+              comment += '✅ **No critical security issues found**\n\n';
+            }
+            
+            comment += `| Severity | Count |\n|----------|-------|\n`;
+            comment += `| 🔴 CRITICAL | ${summary.critical} |\n`;
+            comment += `| 🟠 HIGH | ${summary.high} |\n`;
+            comment += `| 🟡 MEDIUM | ${summary.medium} |\n`;
+            comment += `| 🔵 LOW | ${summary.low} |\n`;
+            comment += `| ⚪ INFO | ${summary.info} |\n\n`;
+            
+            comment += '[View Full Report](../blob/${{ github.sha }}/SECURITY_REPORT.md)\n\n';
+            comment += '*Powered by Claude Code AI Security Scanner*';
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+            
+      - name: Fail if Critical
+        if: always()
+        run: |
+          CRITICAL=$(jq '.critical' security-summary.json)
+          HIGH=$(jq '.high' security-summary.json)
+          
+          if [ "$CRITICAL" -gt 0 ]; then
+            echo "❌ Build failed due to CRITICAL security vulnerabilities"
+            exit 1
+          elif [ "$HIGH" -gt 0 ] && [ "${{ github.event_name }}" == "pull_request" ]; then
+            echo "⚠️  HIGH severity vulnerabilities found - manual review required"
+            exit 1
+          fi

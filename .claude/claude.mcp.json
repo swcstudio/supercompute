@@ -1,0 +1,26 @@
+{
+  "mcpServers": {
+    "lance-tasks-rust": {
+      "command": "/home/ubuntu/src/repos/lance-programmer/rust-mcp-server/target/release/mcp_task_server",
+      "args": [],
+      "env": {
+        "RUST_LOG": "info"
+      }
+    },
+    "lance-system-node": {
+      "command": "node",
+      "args": ["/home/ubuntu/src/repos/lance-programmer/simple-mcp-server.js"],
+      "env": {
+        "MCP_STDIO": "true",
+        "NODE_ENV": "production"
+      }
+    },
+    "@21st-dev/magic": {
+      "command": "/home/ubuntu/.asdf/installs/nodejs/22.11.0/bin/magic",
+      "args": [],
+      "env": {
+        "API_KEY": "7817ebcefe7003529da58d2ad37e6b065894ae720ce22ebbd7c65fde22271849"
+      }
+    }
+  }
+}

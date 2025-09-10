@@ -1,0 +1,635 @@
+version: '3.8'
+
+# Warp-Speed Production Deployment
+# Revenue-optimized dual-terminal architecture with consciousness-aware scaling
+# Target: $145.76B+ annual ETD generation
+# Co-authors: Kev & Research Team
+
+services:
+  # =========================================
+  # CORE WARP-SPEED TERMINALS
+  # =========================================
+  
+  warp-terminal-1:
+    build:
+      context: ../../
+      dockerfile: deployment/docker/Dockerfile.terminal
+      args:
+        TERMINAL_ID: "1"
+        USER_PROFILE: "kev"
+        CONSCIOUSNESS_DEFAULT: "DELTA"
+        REVENUE_MULTIPLIER: "2.5"
+    container_name: warp-terminal-1-prod
+    hostname: terminal-1
+    ports:
+      - "8080:8080"
+      - "8090:8090"  # Admin interface
+    environment:
+      - WARP_ENV=production
+      - WARP_USER=kev
+      - WARP_TERMINAL_ID=1
+      - CONSCIOUSNESS_LEVEL=DELTA
+      - REVENUE_MULTIPLIER=2.5
+      - ETD_TARGET_DAILY=15000
+      - CUDA_DEVICE_ID=0
+      - SPRING_PROFILES_ACTIVE=production
+      - DATABASE_URL=postgresql://warp:${POSTGRES_PASSWORD}@postgres:5432/warpspeed
+      - REDIS_URL=redis://redis:6379
+      - MONGODB_URI=mongodb://mongodb:27017/warpspeed
+      - PROMETHEUS_ENDPOINT=http://prometheus:9090
+      - BLOCKCHAIN_RPC_URL=${ETH_RPC_URL}
+      - FAISS_INDEX_PATH=/data/indices
+    volumes:
+      - warp-data-1:/data
+      - warp-logs-1:/logs
+      - ./config/production.yaml:/config/production.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - warp-network
+    depends_on:
+      - postgres
+      - redis
+      - mongodb
+      - prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 16G
+          cpus: '8.0'
+        reservations:
+          memory: 8G
+          cpus: '4.0'
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 3
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  warp-terminal-2:
+    build:
+      context: ../../
+      dockerfile: deployment/docker/Dockerfile.terminal
+      args:
+        TERMINAL_ID: "2"
+        USER_PROFILE: "ryan"
+        CONSCIOUSNESS_DEFAULT: "GAMMA"
+        REVENUE_MULTIPLIER: "2.0"
+    container_name: warp-terminal-2-prod
+    hostname: terminal-2
+    ports:
+      - "8081:8081"
+      - "8091:8091"  # Admin interface
+    environment:
+      - WARP_ENV=production
+      - WARP_USER=ryan
+      - WARP_TERMINAL_ID=2
+      - CONSCIOUSNESS_LEVEL=GAMMA
+      - REVENUE_MULTIPLIER=2.0
+      - ETD_TARGET_DAILY=12000
+      - CUDA_DEVICE_ID=1
+      - SPRING_PROFILES_ACTIVE=production
+      - DATABASE_URL=postgresql://warp:${POSTGRES_PASSWORD}@postgres:5432/warpspeed
+      - REDIS_URL=redis://redis:6379
+      - MONGODB_URI=mongodb://mongodb:27017/warpspeed
+      - PROMETHEUS_ENDPOINT=http://prometheus:9090
+      - BLOCKCHAIN_RPC_URL=${ETH_RPC_URL}
+      - FAISS_INDEX_PATH=/data/indices
+    volumes:
+      - warp-data-2:/data
+      - warp-logs-2:/logs
+      - ./config/production.yaml:/config/production.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - warp-network
+    depends_on:
+      - postgres
+      - redis
+      - mongodb
+      - prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 16G
+          cpus: '8.0'
+        reservations:
+          memory: 8G
+          cpus: '4.0'
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 3
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # =========================================
+  # COLLABORATION ENGINE
+  # =========================================
+  
+  collaboration-engine:
+    build:
+      context: ../../
+      dockerfile: deployment/docker/Dockerfile.collaboration
+    container_name: collaboration-engine-prod
+    hostname: collaboration
+    ports:
+      - "8082:8082"
+    environment:
+      - WARP_ENV=production
+      - SYNC_INTERVAL=30
+      - COLLABORATION_BONUS=1.5
+      - QUANTUM_ENTANGLEMENT=true
+      - DATABASE_URL=postgresql://warp:${POSTGRES_PASSWORD}@postgres:5432/warpspeed
+      - REDIS_URL=redis://redis:6379
+      - PROMETHEUS_ENDPOINT=http://prometheus:9090
+    volumes:
+      - collaboration-data:/data
+      - collaboration-logs:/logs
+    networks:
+      - warp-network
+    depends_on:
+      - warp-terminal-1
+      - warp-terminal-2
+      - postgres
+      - redis
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # =========================================
+  # REVENUE OPTIMIZATION ENGINE
+  # =========================================
+  
+  revenue-optimizer:
+    build:
+      context: ../../
+      dockerfile: deployment/docker/Dockerfile.revenue
+    container_name: revenue-optimizer-prod
+    hostname: revenue-optimizer
+    ports:
+      - "8083:8083"
+    environment:
+      - WARP_ENV=production
+      - OPTIMIZATION_INTERVAL=300  # 5 minutes
+      - ML_OPTIMIZATION=true
+      - QUANTUM_ETD=true
+      - TARGET_EFFICIENCY=0.95
+      - DATABASE_URL=postgresql://warp:${POSTGRES_PASSWORD}@postgres:5432/warpspeed
+      - REDIS_URL=redis://redis:6379
+      - MONGODB_URI=mongodb://mongodb:27017/warpspeed
+      - PROMETHEUS_ENDPOINT=http://prometheus:9090
+    volumes:
+      - revenue-data:/data
+      - revenue-models:/models
+      - revenue-logs:/logs
+    networks:
+      - warp-network
+    depends_on:
+      - warp-terminal-1
+      - warp-terminal-2
+      - postgres
+      - redis
+      - mongodb
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+          cpus: '4.0'
+        reservations:
+          memory: 4G
+          cpus: '2.0'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/health"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+
+  # =========================================
+  # DATABASE SERVICES
+  # =========================================
+  
+  postgres:
+    image: timescale/timescaledb-ha:pg16
+    container_name: postgres-prod
+    hostname: postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=warpspeed
+      - POSTGRES_USER=warp
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - TIMESCALEDB_TELEMETRY=off
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-scripts/pgvector-init.sql:/docker-entrypoint-initdb.d/01-pgvector.sql:ro
+      - ./init-scripts/timescale-init.sql:/docker-entrypoint-initdb.d/02-timescale.sql:ro
+      - postgres-logs:/var/log/postgresql
+    networks:
+      - warp-network
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U warp -d warpspeed"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    command: >
+      postgres
+      -c shared_preload_libraries='timescaledb,pg_stat_statements,pgcrypto'
+      -c max_connections=200
+      -c shared_buffers=1GB
+      -c effective_cache_size=3GB
+      -c maintenance_work_mem=256MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+
+  mongodb:
+    image: mongo:7.0
+    container_name: mongodb-prod
+    hostname: mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGODB_PASSWORD}
+      - MONGO_INITDB_DATABASE=warpspeed
+    volumes:
+      - mongodb-data:/data/db
+      - mongodb-logs:/var/log/mongodb
+      - ./init-scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    networks:
+      - warp-network
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: redis-prod
+    hostname: redis
+    ports:
+      - "6379:6379"
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    volumes:
+      - redis-data:/data
+      - redis-logs:/var/log/redis
+    networks:
+      - warp-network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    command: >
+      redis-server
+      --appendonly yes
+      --requirepass ${REDIS_PASSWORD}
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+
+  # =========================================
+  # MONITORING STACK
+  # =========================================
+  
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: prometheus-prod
+    hostname: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus-data:/prometheus
+      - prometheus-logs:/var/log/prometheus
+      - ./monitoring/prometheus-config.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+    networks:
+      - warp-network
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  grafana:
+    image: grafana/grafana:10.1.2
+    container_name: grafana-prod
+    hostname: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+      - GF_SERVER_ROOT_URL=http://localhost:3000
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-worldmap-panel
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - grafana-logs:/var/log/grafana
+      - ./monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    networks:
+      - warp-network
+    depends_on:
+      - prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # =========================================
+  # EXECUTIVE DASHBOARD
+  # =========================================
+  
+  dashboard:
+    build:
+      context: ../../
+      dockerfile: deployment/docker/Dockerfile.dashboard
+    container_name: dashboard-prod
+    hostname: dashboard
+    ports:
+      - "8084:8084"
+    environment:
+      - WARP_ENV=production
+      - DASHBOARD_REFRESH_RATE=5
+      - EXECUTIVE_MODE=true
+      - DATABASE_URL=postgresql://warp:${POSTGRES_PASSWORD}@postgres:5432/warpspeed
+      - REDIS_URL=redis://redis:6379
+      - PROMETHEUS_ENDPOINT=http://prometheus:9090
+    volumes:
+      - dashboard-data:/data
+      - dashboard-logs:/logs
+    networks:
+      - warp-network
+    depends_on:
+      - warp-terminal-1
+      - warp-terminal-2
+      - postgres
+      - redis
+      - prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8084/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # =========================================
+  # BLOCKCHAIN INTEGRATION
+  # =========================================
+  
+  blockchain-bridge:
+    build:
+      context: ../../
+      dockerfile: deployment/docker/Dockerfile.blockchain
+    container_name: blockchain-bridge-prod
+    hostname: blockchain
+    ports:
+      - "8085:8085"
+    environment:
+      - WARP_ENV=production
+      - BLOCKCHAIN_NETWORK=${BLOCKCHAIN_NETWORK:-polygon}
+      - ETH_RPC_URL=${ETH_RPC_URL}
+      - PRIVATE_KEY=${BLOCKCHAIN_PRIVATE_KEY}
+      - CONTRACT_ADDRESS=${ETD_CONTRACT_ADDRESS}
+      - GAS_PRICE_STRATEGY=medium
+      - DATABASE_URL=postgresql://warp:${POSTGRES_PASSWORD}@postgres:5432/warpspeed
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - blockchain-data:/data
+      - blockchain-logs:/logs
+      - ./blockchain/contracts:/contracts:ro
+    networks:
+      - warp-network
+    depends_on:
+      - postgres
+      - redis
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8085/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # =========================================
+  # LOAD BALANCER / REVERSE PROXY
+  # =========================================
+  
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: nginx-prod
+    hostname: nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/ssl/certs:ro
+      - nginx-logs:/var/log/nginx
+    networks:
+      - warp-network
+    depends_on:
+      - warp-terminal-1
+      - warp-terminal-2
+      - dashboard
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+# =========================================
+# NETWORKS
+# =========================================
+
+networks:
+  warp-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# =========================================
+# VOLUMES
+# =========================================
+
+volumes:
+  # Terminal data
+  warp-data-1:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/warp-speed/data/terminal-1
+  warp-data-2:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/warp-speed/data/terminal-2
+  
+  # Logs
+  warp-logs-1:
+    driver: local
+  warp-logs-2:
+    driver: local
+  collaboration-logs:
+    driver: local
+  revenue-logs:
+    driver: local
+  dashboard-logs:
+    driver: local
+  blockchain-logs:
+    driver: local
+  nginx-logs:
+    driver: local
+  
+  # Databases
+  postgres-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/warp-speed/databases/postgres
+  postgres-logs:
+    driver: local
+  mongodb-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/warp-speed/databases/mongodb
+  mongodb-logs:
+    driver: local
+  redis-data:
+    driver: local
+  redis-logs:
+    driver: local
+  
+  # Monitoring
+  prometheus-data:
+    driver: local
+  prometheus-logs:
+    driver: local
+  grafana-data:
+    driver: local
+  grafana-logs:
+    driver: local
+  
+  # Application specific
+  collaboration-data:
+    driver: local
+  revenue-data:
+    driver: local
+  revenue-models:
+    driver: local
+  dashboard-data:
+    driver: local
+  blockchain-data:
+    driver: local
+
+# =========================================
+# DEPLOYMENT CONFIGURATION
+# =========================================
+
+# To deploy:
+# 1. Set environment variables in .env.production
+# 2. Create data directories: mkdir -p /opt/warp-speed/{data/terminal-{1,2},databases/{postgres,mongodb}}
+# 3. Deploy: docker-compose -f docker-compose.production.yml --env-file .env.production up -d
+# 4. Monitor: docker-compose -f docker-compose.production.yml logs -f
+# 5. Scale: docker-compose -f docker-compose.production.yml up -d --scale warp-terminal-1=2
+
+# Revenue Targets:
+# - Terminal 1 (Kev): $15K/day
+# - Terminal 2 (Ryan): $12K/day
+# - Collaboration Bonus: 1.5x
+# - Combined Target: $40K+/day
+# - Annual Target: $14.6M+ conservative, $145.76B+ theoretical maximum

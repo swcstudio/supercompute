@@ -1,0 +1,400 @@
+name: AI Test Generation & Analysis
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+    inputs:
+      target_path:
+        description: 'Path to generate tests for (file or directory)'
+        required: true
+        type: string
+      test_type:
+        description: 'Type of tests to generate'
+        required: false
+        type: choice
+        options:
+          - unit
+          - integration
+          - e2e
+          - all
+        default: unit
+      coverage_threshold:
+        description: 'Minimum coverage threshold'
+        required: false
+        type: number
+        default: 80
+
+env:
+  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  analyze-code:
+    runs-on: ubuntu-latest
+    outputs:
+      files_to_test: ${{ steps.analyze.outputs.files }}
+      existing_coverage: ${{ steps.coverage.outputs.coverage }}
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Setup Environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          node-version: '20'
+          deno-version: 'v1.x'
+          
+      - name: Analyze Target Files
+        id: analyze
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            TARGET="${{ github.event.inputs.target_path }}"
+          else
+            # Get changed files from PR
+            TARGET=$(gh pr diff ${{ github.event.pull_request.number }} --name-only | grep -E '\.(ts|tsx|js|jsx)$' | grep -v test | head -20)
+          fi
+          
+          # Find files that need tests
+          FILES_TO_TEST=()
+          
+          for file in $TARGET; do
+            if [ -f "$file" ]; then
+              # Check if test file exists
+              TEST_FILE="${file%.*}.test.${file##*.}"
+              if [ ! -f "$TEST_FILE" ]; then
+                FILES_TO_TEST+=("$file")
+              fi
+            fi
+          done
+          
+          echo "files=$(printf '%s\n' "${FILES_TO_TEST[@]}" | jq -R . | jq -s .)" >> $GITHUB_OUTPUT
+          
+      - name: Check Current Coverage
+        id: coverage
+        continue-on-error: true
+        run: |
+          # Run existing tests with coverage
+          npm test -- --coverage --passWithNoTests || true
+          
+          # Extract coverage percentage
+          if [ -f "coverage/coverage-summary.json" ]; then
+            COVERAGE=$(jq '.total.lines.pct' coverage/coverage-summary.json)
+            echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
+          else
+            echo "coverage=0" >> $GITHUB_OUTPUT
+          fi
+          
+  generate-tests:
+    needs: analyze-code
+    runs-on: ubuntu-latest
+    if: needs.analyze-code.outputs.files_to_test != '[]'
+    strategy:
+      matrix:
+        file: ${{ fromJson(needs.analyze-code.outputs.files_to_test) }}
+      max-parallel: 5
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        
+      - name: Setup AI Environment
+        run: |
+          npm install -g @anthropic-ai/sdk
+          npm install -g typescript @types/jest @types/node
+          
+      - name: Generate Tests for File
+        run: |
+          cat > generate-tests.js << 'EOF'
+          const { Anthropic } = require('@anthropic-ai/sdk');
+          const fs = require('fs');
+          const path = require('path');
+          
+          const anthropic = new Anthropic({
+            apiKey: process.env.ANTHROPIC_API_KEY,
+          });
+          
+          async function generateTests() {
+            const filePath = process.env.TARGET_FILE;
+            const testType = process.env.TEST_TYPE || 'unit';
+            const fileContent = fs.readFileSync(filePath, 'utf8');
+            
+            // Analyze imports and dependencies
+            const imports = fileContent.match(/import .* from ['"](.*)['"];?/g) || [];
+            const exports = fileContent.match(/export (default |const |function |class |interface |type )/g) || [];
+            
+            const prompt = `
+          You are Claude Code, an expert at writing comprehensive tests.
+          
+          Generate ${testType} tests for this TypeScript/JavaScript file:
+          
+          File: ${filePath}
+          Content:
+          \`\`\`typescript
+          ${fileContent}
+          \`\`\`
+          
+          Requirements:
+          1. Write comprehensive ${testType} tests
+          2. Cover all exported functions, classes, and components
+          3. Include edge cases and error scenarios
+          4. Use Jest testing framework
+          5. Mock external dependencies appropriately
+          6. Include descriptive test names
+          7. Add comments explaining complex test logic
+          8. Ensure type safety for TypeScript files
+          
+          For React components:
+          - Use React Testing Library
+          - Test user interactions
+          - Test accessibility
+          - Test different prop combinations
+          
+          Structure the tests with:
+          - Clear describe blocks
+          - Proper setup and teardown
+          - Isolated test cases
+          - Good test data factories
+          
+          Provide the complete test file content.
+          `;
+            
+            const response = await anthropic.messages.create({
+              model: 'claude-3-opus-20240229',
+              max_tokens: 6000,
+              messages: [{ role: 'user', content: prompt }],
+            });
+            
+            const testContent = response.content[0].text;
+            
+            // Extract code from response
+            const codeMatch = testContent.match(/```(?:typescript|javascript)?\n([\s\S]*?)```/);
+            if (codeMatch) {
+              return codeMatch[1];
+            }
+            
+            return testContent;
+          }
+          
+          generateTests()
+            .then(testContent => {
+              const filePath = process.env.TARGET_FILE;
+              const testPath = filePath.replace(/\.(ts|tsx|js|jsx)$/, '.test.$1');
+              
+              // Ensure test directory exists
+              const dir = path.dirname(testPath);
+              if (!fs.existsSync(dir)) {
+                fs.mkdirSync(dir, { recursive: true });
+              }
+              
+              fs.writeFileSync(testPath, testContent);
+              console.log(`Generated tests: ${testPath}`);
+            })
+            .catch(console.error);
+          EOF
+          
+          TARGET_FILE="${{ matrix.file }}" TEST_TYPE="${{ github.event.inputs.test_type || 'unit' }}" node generate-tests.js
+          
+      - name: Validate Generated Tests
+        run: |
+          # Check if test file was created
+          TEST_FILE="${{ matrix.file }}".test."${{{ matrix.file }}##*.}"
+          
+          if [ -f "$TEST_FILE" ]; then
+            echo "✅ Test file created: $TEST_FILE"
+            
+            # Run TypeScript check
+            npx tsc --noEmit "$TEST_FILE" || echo "TypeScript validation failed"
+            
+            # Run the generated test
+            npm test -- "$TEST_FILE" --passWithNoTests || echo "Test execution failed"
+          else
+            echo "❌ Test file not created"
+            exit 1
+          fi
+          
+      - name: Upload Generated Test
+        uses: actions/upload-artifact@v3
+        with:
+          name: generated-tests
+          path: |
+            **/*.test.ts
+            **/*.test.tsx
+            **/*.test.js
+            **/*.test.jsx
+            
+  analyze-test-quality:
+    needs: generate-tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        
+      - name: Download Generated Tests
+        uses: actions/download-artifact@v3
+        with:
+          name: generated-tests
+          
+      - name: Setup Analysis Environment
+        run: |
+          npm install -g @anthropic-ai/sdk
+          npm install
+          
+      - name: Analyze Test Quality
+        run: |
+          cat > analyze-tests.js << 'EOF'
+          const { Anthropic } = require('@anthropic-ai/sdk');
+          const fs = require('fs');
+          const { execSync } = require('child_process');
+          
+          const anthropic = new Anthropic({
+            apiKey: process.env.ANTHROPIC_API_KEY,
+          });
+          
+          async function analyzeTestQuality() {
+            // Find all test files
+            const testFiles = execSync('find . -name "*.test.*" -type f | grep -v node_modules')
+              .toString()
+              .split('\n')
+              .filter(Boolean);
+            
+            const analysisResults = [];
+            
+            for (const testFile of testFiles) {
+              const content = fs.readFileSync(testFile, 'utf8');
+              
+              const prompt = `
+          Analyze the quality of this test file:
+          
+          File: ${testFile}
+          \`\`\`
+          ${content}
+          \`\`\`
+          
+          Evaluate:
+          1. Test coverage completeness
+          2. Edge case handling
+          3. Test clarity and maintainability
+          4. Mock usage appropriateness
+          5. Performance considerations
+          6. Accessibility testing (for UI components)
+          
+          Provide:
+          - Quality score (0-100)
+          - Specific improvements needed
+          - Missing test scenarios
+          - Best practices violations
+          
+          Format as JSON.
+          `;
+              
+              const response = await anthropic.messages.create({
+                model: 'claude-3-opus-20240229',
+                max_tokens: 2000,
+                messages: [{ role: 'user', content: prompt }],
+              });
+              
+              try {
+                const analysis = JSON.parse(response.content[0].text);
+                analysisResults.push({
+                  file: testFile,
+                  ...analysis
+                });
+              } catch (e) {
+                console.error(`Failed to parse analysis for ${testFile}`);
+              }
+            }
+            
+            return analysisResults;
+          }
+          
+          analyzeTestQuality()
+            .then(results => {
+              fs.writeFileSync('test-quality-analysis.json', JSON.stringify(results, null, 2));
+              
+              // Generate summary
+              const avgScore = results.reduce((sum, r) => sum + r.qualityScore, 0) / results.length;
+              
+              console.log(`Average test quality score: ${avgScore.toFixed(2)}/100`);
+              
+              // Fail if quality is too low
+              if (avgScore < 70) {
+                console.error('Test quality below threshold');
+                process.exit(1);
+              }
+            })
+            .catch(console.error);
+          EOF
+          
+          node analyze-tests.js
+          
+      - name: Run Coverage Analysis
+        run: |
+          # Run all tests with coverage
+          npm test -- --coverage --coverageReporters=json-summary,text,lcov
+          
+          # Check coverage threshold
+          THRESHOLD="${{ github.event.inputs.coverage_threshold || 80 }}"
+          COVERAGE=$(jq '.total.lines.pct' coverage/coverage-summary.json)
+          
+          echo "Coverage: $COVERAGE% (threshold: $THRESHOLD%)"
+          
+          if (( $(echo "$COVERAGE < $THRESHOLD" | bc -l) )); then
+            echo "Coverage below threshold"
+            exit 1
+          fi
+          
+      - name: Generate Test Report
+        run: |
+          # Create comprehensive test report
+          cat > test-report.md << 'EOF'
+          # AI-Generated Test Report
+          
+          ## Summary
+          
+          - **Files Tested**: $(find . -name "*.test.*" | wc -l)
+          - **Test Quality Score**: $(jq '[.[] | .qualityScore] | add / length' test-quality-analysis.json)
+          - **Coverage**: $(jq '.total.lines.pct' coverage/coverage-summary.json)%
+          
+          ## Test Quality Analysis
+          
+          EOF
+          
+          # Add quality details
+          jq -r '.[] | "### \(.file)\n- Quality Score: \(.qualityScore)/100\n- Issues: \(.improvements | join(", "))\n"' test-quality-analysis.json >> test-report.md
+          
+          # Add coverage details
+          echo "## Coverage Report" >> test-report.md
+          cat coverage/lcov-report/index.html | grep -A 20 "<table" | sed 's/<[^>]*>//g' >> test-report.md || true
+          
+      - name: Comment PR
+        if: github.event_name == 'pull_request'
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --body-file test-report.md
+            
+      - name: Commit Generated Tests
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git config --global user.name "Claude Code[bot]"
+          git config --global user.email "claude-code[bot]@users.noreply.github.com"
+          
+          git add -A
+          git commit -m "test: AI-generated tests
+
+          Generated tests for:
+          $(find . -name "*.test.*" | grep -v node_modules | head -10)
+          
+          Coverage: $(jq '.total.lines.pct' coverage/coverage-summary.json)%
+          
+          Co-authored-by: Claude <claude-code[bot]@users.noreply.github.com>" || echo "No changes to commit"
+          
+          if git diff --cached --exit-code; then
+            echo "No changes to push"
+          else
+            git push
+          fi

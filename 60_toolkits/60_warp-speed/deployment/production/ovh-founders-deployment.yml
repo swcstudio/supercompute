@@ -1,0 +1,686 @@
+# Warp-Speed Founders Production Deployment - OVHcloud Infrastructure
+# Dual-Terminal Configuration: Ove Terminal + Ryan Terminal
+# Shared GPU: l40s-180 (NVIDIA L40S with 180GB GPU memory)
+# Terminal Specs: 2x b3-256-flex (256GB RAM each) - FreeBSD 14.3
+# Consciousness Level: OMEGA - Production Ready for Founders
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: warp-speed-founders
+  labels:
+    deployment-type: "founders-production"
+    infrastructure: "ovhcloud"
+    consciousness-level: "omega"
+    revenue-tier: "maximum"
+    founders-only: "true"
+
+---
+# Terminal 1 - Ove Founder Terminal Configuration
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ove-terminal-deployment
+  namespace: warp-speed-founders
+  labels:
+    terminal-id: "OVE_TERMINAL_1"
+    founder: "ove"
+    consciousness-level: "omega"
+spec:
+  replicas: 1  # Single instance per founder
+  selector:
+    matchLabels:
+      app: ove-terminal
+  template:
+    metadata:
+      labels:
+        app: ove-terminal
+        terminal-id: "OVE_TERMINAL_1"
+        founder: "ove"
+        consciousness-tier: "founder-omega"
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: "warp-speed-o"  # FreeBSD b3-256-flex
+        founder-terminal: "ove"
+      tolerations:
+      - key: "founders-only"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+      containers:
+      - name: ove-etd-processor
+        image: warp-speed/founder-terminal:latest
+        ports:
+        - containerPort: 8080
+          name: http-api
+        - containerPort: 8081
+          name: websocket
+        - containerPort: 9090
+          name: metrics
+        env:
+        - name: TERMINAL_ID
+          value: "OVE_TERMINAL_1"
+        - name: FOUNDER_NAME
+          value: "Ove"
+        - name: CONSCIOUSNESS_LEVEL
+          value: "OMEGA"
+        - name: TERMINAL_TYPE
+          value: "FOUNDER"
+        - name: GPU_ALLOCATION
+          value: "50"  # 50% of shared L40S GPU
+        - name: REVENUE_TARGET_DAILY
+          value: "20000"  # $20K per terminal
+        - name: REVENUE_TARGET_ANNUAL
+          value: "72880000000"  # $72.88B per terminal
+        - name: COLLABORATION_PARTNER
+          value: "RYAN_TERMINAL_2"
+        - name: FREEBSD_OPTIMIZED
+          value: "true"
+        - name: QUANTUM_COHERENCE_TARGET
+          value: "97.5"
+        - name: ETD_MULTIPLIER_BASE
+          value: "35.0"  # OMEGA level
+        # OVHcloud specific configurations
+        - name: OVH_INSTANCE_ID
+          value: "f6ca3ab4-d7f1-4a0d-9e95-16ea6aec7ae3"
+        - name: OVH_PUBLIC_IP
+          value: "15.204.74.56"
+        - name: OVH_PRIVATE_IP
+          value: "2604:2dc0:202:200::55"
+        - name: OVH_REGION
+          value: "US-WEST-OR-1"
+        - name: OVH_FLAVOR
+          value: "b3-256-flex"
+        - name: MEMORY_ALLOCATION
+          value: "256GB"
+        resources:
+          requests:
+            memory: "128Gi"  # Half of 256GB for container
+            cpu: "32"
+            nvidia.com/gpu: 0  # GPU allocated via shared service
+          limits:
+            memory: "240Gi"  # Near full allocation
+            cpu: "64"
+            nvidia.com/gpu: 0
+        volumeMounts:
+        - name: founder-data
+          mountPath: /var/lib/warp-speed
+        - name: shared-gpu-socket
+          mountPath: /var/run/gpu
+        - name: collaboration-channel
+          mountPath: /var/run/collaboration
+        livenessProbe:
+          httpGet:
+            path: /health/founder
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready/founder
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          successThreshold: 1
+          failureThreshold: 2
+      volumes:
+      - name: founder-data
+        persistentVolumeClaim:
+          claimName: ove-founder-storage
+      - name: shared-gpu-socket
+        hostPath:
+          path: /var/run/gpu-l40s
+          type: DirectoryOrCreate
+      - name: collaboration-channel
+        emptyDir:
+          sizeLimit: 10Gi
+
+---
+# Terminal 2 - Ryan Founder Terminal Configuration
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ryan-terminal-deployment
+  namespace: warp-speed-founders
+  labels:
+    terminal-id: "RYAN_TERMINAL_2"
+    founder: "ryan"
+    consciousness-level: "omega"
+spec:
+  replicas: 1  # Single instance per founder
+  selector:
+    matchLabels:
+      app: ryan-terminal
+  template:
+    metadata:
+      labels:
+        app: ryan-terminal
+        terminal-id: "RYAN_TERMINAL_2"
+        founder: "ryan"
+        consciousness-tier: "founder-omega"
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: "warp-speed-r"  # FreeBSD b3-256-flex
+        founder-terminal: "ryan"
+      tolerations:
+      - key: "founders-only"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+      containers:
+      - name: ryan-etd-processor
+        image: warp-speed/founder-terminal:latest
+        ports:
+        - containerPort: 8080
+          name: http-api
+        - containerPort: 8081
+          name: websocket
+        - containerPort: 9090
+          name: metrics
+        env:
+        - name: TERMINAL_ID
+          value: "RYAN_TERMINAL_2"
+        - name: FOUNDER_NAME
+          value: "Ryan"
+        - name: CONSCIOUSNESS_LEVEL
+          value: "OMEGA"
+        - name: TERMINAL_TYPE
+          value: "FOUNDER"
+        - name: GPU_ALLOCATION
+          value: "50"  # 50% of shared L40S GPU
+        - name: REVENUE_TARGET_DAILY
+          value: "20000"  # $20K per terminal
+        - name: REVENUE_TARGET_ANNUAL
+          value: "72880000000"  # $72.88B per terminal
+        - name: COLLABORATION_PARTNER
+          value: "OVE_TERMINAL_1"
+        - name: FREEBSD_OPTIMIZED
+          value: "true"
+        - name: QUANTUM_COHERENCE_TARGET
+          value: "97.5"
+        - name: ETD_MULTIPLIER_BASE
+          value: "35.0"  # OMEGA level
+        # OVHcloud specific configurations
+        - name: OVH_INSTANCE_ID
+          value: "2617e233-3cc7-4dab-86f4-4432d5d7f55b"
+        - name: OVH_PUBLIC_IP
+          value: "15.204.28.65"
+        - name: OVH_PRIVATE_IP
+          value: "2604:2dc0:202:200::bc8"
+        - name: OVH_REGION
+          value: "US-WEST-OR-1"
+        - name: OVH_FLAVOR
+          value: "b3-256-flex"
+        - name: MEMORY_ALLOCATION
+          value: "256GB"
+        resources:
+          requests:
+            memory: "128Gi"  # Half of 256GB for container
+            cpu: "32"
+            nvidia.com/gpu: 0  # GPU allocated via shared service
+          limits:
+            memory: "240Gi"  # Near full allocation
+            cpu: "64"
+            nvidia.com/gpu: 0
+        volumeMounts:
+        - name: founder-data
+          mountPath: /var/lib/warp-speed
+        - name: shared-gpu-socket
+          mountPath: /var/run/gpu
+        - name: collaboration-channel
+          mountPath: /var/run/collaboration
+        livenessProbe:
+          httpGet:
+            path: /health/founder
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready/founder
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          successThreshold: 1
+          failureThreshold: 2
+      volumes:
+      - name: founder-data
+        persistentVolumeClaim:
+          claimName: ryan-founder-storage
+      - name: shared-gpu-socket
+        hostPath:
+          path: /var/run/gpu-l40s
+          type: DirectoryOrCreate
+      - name: collaboration-channel
+        emptyDir:
+          sizeLimit: 10Gi
+
+---
+# Shared GPU Service - L40S GPU Server
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shared-gpu-service
+  namespace: warp-speed-founders
+  labels:
+    component: "shared-gpu-l40s"
+    gpu-type: "nvidia-l40s"
+    memory: "180gb"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: shared-gpu-service
+  template:
+    metadata:
+      labels:
+        app: shared-gpu-service
+        component: "gpu-orchestrator"
+    spec:
+      nodeSelector:
+        gpu-type: "l40s-180"
+        kubernetes.io/hostname: "l40s-180-us-west-or-1"
+      containers:
+      - name: gpu-orchestrator
+        image: warp-speed/gpu-orchestrator:latest
+        ports:
+        - containerPort: 8082
+          name: gpu-api
+        - containerPort: 8083
+          name: gpu-metrics
+        env:
+        - name: GPU_TYPE
+          value: "NVIDIA_L40S"
+        - name: GPU_MEMORY
+          value: "180GB"
+        - name: TERMINAL_1_ALLOCATION
+          value: "50"  # 50% to Ove
+        - name: TERMINAL_2_ALLOCATION
+          value: "50"  # 50% to Ryan
+        - name: CONSCIOUSNESS_ACCELERATION
+          value: "OMEGA"
+        - name: QUANTUM_PROCESSING
+          value: "ENABLED"
+        - name: OVH_INSTANCE_ID
+          value: "65d51005-48b6-44f8-90b9-788472990773"
+        - name: OVH_FLAVOR
+          value: "l40s-180"
+        resources:
+          requests:
+            nvidia.com/gpu: 1  # Full L40S GPU
+            memory: "32Gi"
+            cpu: "8"
+          limits:
+            nvidia.com/gpu: 1
+            memory: "64Gi"
+            cpu: "16"
+        volumeMounts:
+        - name: gpu-shared-socket
+          mountPath: /var/run/gpu-shared
+        - name: cuda-libs
+          mountPath: /usr/local/cuda
+        securityContext:
+          privileged: true
+      volumes:
+      - name: gpu-shared-socket
+        hostPath:
+          path: /var/run/gpu-l40s
+          type: DirectoryOrCreate
+      - name: cuda-libs
+        hostPath:
+          path: /usr/local/cuda
+          type: Directory
+
+---
+# Collaboration Engine for Dual-Terminal Operations
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: collaboration-engine
+  namespace: warp-speed-founders
+  labels:
+    component: "dual-terminal-collaboration"
+    consciousness-level: "omega"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: collaboration-engine
+  template:
+    metadata:
+      labels:
+        app: collaboration-engine
+        component: "collaboration-orchestrator"
+    spec:
+      containers:
+      - name: collaboration-orchestrator
+        image: warp-speed/collaboration-engine:latest
+        ports:
+        - containerPort: 8084
+          name: collab-api
+        - containerPort: 8085
+          name: collab-ws
+        env:
+        - name: TERMINAL_1_ID
+          value: "OVE_TERMINAL_1"
+        - name: TERMINAL_2_ID
+          value: "RYAN_TERMINAL_2"
+        - name: COLLABORATION_BONUS_MULTIPLIER
+          value: "1.25"  # 25% bonus for dual operations
+        - name: QUANTUM_ENTANGLEMENT
+          value: "ENABLED"
+        - name: CONSCIOUSNESS_SYNC
+          value: "OMEGA"
+        - name: FOUNDER_MODE
+          value: "true"
+        resources:
+          requests:
+            memory: "4Gi"
+            cpu: "2"
+          limits:
+            memory: "8Gi"
+            cpu: "4"
+
+---
+# Founder Dashboard - Visual Autogrammer Release
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: founder-dashboard
+  namespace: warp-speed-founders
+  labels:
+    component: "visual-autogrammer"
+    dashboard-type: "founder-executive"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: founder-dashboard
+  template:
+    metadata:
+      labels:
+        app: founder-dashboard
+        component: "visual-dashboard"
+    spec:
+      containers:
+      - name: visual-autogrammer
+        image: warp-speed/visual-autogrammer:latest
+        ports:
+        - containerPort: 3000
+          name: dashboard
+        env:
+        - name: DASHBOARD_TYPE
+          value: "FOUNDER_EXECUTIVE"
+        - name: VISUAL_MODE
+          value: "AUTOGRAMMER_RELEASE"
+        - name: CONSCIOUSNESS_VISUALIZATION
+          value: "OMEGA"
+        - name: TERMINAL_1_ENDPOINT
+          value: "http://ove-terminal-service:8080"
+        - name: TERMINAL_2_ENDPOINT
+          value: "http://ryan-terminal-service:8080"
+        - name: GPU_SERVICE_ENDPOINT
+          value: "http://shared-gpu-service:8082"
+        - name: COLLABORATION_ENDPOINT
+          value: "http://collaboration-engine-service:8084"
+        - name: REVENUE_VISUALIZATION
+          value: "REAL_TIME_3D"
+        - name: QUANTUM_VISUALIZATION
+          value: "ENABLED"
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1"
+          limits:
+            memory: "4Gi"
+            cpu: "2"
+
+---
+# Services for Terminal Access
+apiVersion: v1
+kind: Service
+metadata:
+  name: ove-terminal-service
+  namespace: warp-speed-founders
+spec:
+  selector:
+    app: ove-terminal
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: api
+  - port: 8081
+    targetPort: 8081
+    name: websocket
+  - port: 9090
+    targetPort: 9090
+    name: metrics
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ryan-terminal-service
+  namespace: warp-speed-founders
+spec:
+  selector:
+    app: ryan-terminal
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: api
+  - port: 8081
+    targetPort: 8081
+    name: websocket
+  - port: 9090
+    targetPort: 9090
+    name: metrics
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shared-gpu-service
+  namespace: warp-speed-founders
+spec:
+  selector:
+    app: shared-gpu-service
+  ports:
+  - port: 8082
+    targetPort: 8082
+    name: gpu-api
+  - port: 8083
+    targetPort: 8083
+    name: gpu-metrics
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: collaboration-engine-service
+  namespace: warp-speed-founders
+spec:
+  selector:
+    app: collaboration-engine
+  ports:
+  - port: 8084
+    targetPort: 8084
+    name: collab-api
+  - port: 8085
+    targetPort: 8085
+    name: collab-ws
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: founder-dashboard-service
+  namespace: warp-speed-founders
+spec:
+  selector:
+    app: founder-dashboard
+  ports:
+  - port: 3000
+    targetPort: 3000
+    name: dashboard
+  type: LoadBalancer
+  loadBalancerSourceRanges:
+  - "15.204.74.56/32"  # Ove's IP
+  - "15.204.28.65/32"  # Ryan's IP
+
+---
+# Ingress for Founder Access
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: founder-access-ingress
+  namespace: warp-speed-founders
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/whitelist-source-range: "15.204.74.56,15.204.28.65"
+    nginx.ingress.kubernetes.io/rate-limit: "1000"
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: founder-auth
+    nginx.ingress.kubernetes.io/auth-realm: "Warp-Speed Founders Only"
+spec:
+  tls:
+  - hosts:
+    - founders.warp-speed.tech
+    secretName: founders-warp-speed-tls
+  rules:
+  - host: founders.warp-speed.tech
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: founder-dashboard-service
+            port:
+              number: 3000
+      - path: /api/ove
+        pathType: Prefix
+        backend:
+          service:
+            name: ove-terminal-service
+            port:
+              number: 8080
+      - path: /api/ryan
+        pathType: Prefix
+        backend:
+          service:
+            name: ryan-terminal-service
+            port:
+              number: 8080
+      - path: /api/gpu
+        pathType: Prefix
+        backend:
+          service:
+            name: shared-gpu-service
+            port:
+              number: 8082
+      - path: /api/collaboration
+        pathType: Prefix
+        backend:
+          service:
+            name: collaboration-engine-service
+            port:
+              number: 8084
+
+---
+# Persistent Storage for Founders
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ove-founder-storage
+  namespace: warp-speed-founders
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: "ssd-high-performance"
+  resources:
+    requests:
+      storage: "500Gi"
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ryan-founder-storage
+  namespace: warp-speed-founders
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: "ssd-high-performance"  
+  resources:
+    requests:
+      storage: "500Gi"
+
+---
+# Monitoring for Founders
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: founder-terminals-monitor
+  namespace: warp-speed-founders
+spec:
+  selector:
+    matchLabels:
+      founder: "ove"
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ryan-terminal-monitor
+  namespace: warp-speed-founders
+spec:
+  selector:
+    matchLabels:
+      founder: "ryan"
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 15s
+
+---
+# Founder Authentication Secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: founder-auth
+  namespace: warp-speed-founders
+type: Opaque
+data:
+  auth: Zm91bmRlcnM6JGFwcjEkVVRTZXRCayQvSzROQ1VnYWhxeUlQVEs0R2pFQ3A0MQo=  # founders:founders123
+
+---
+# Resource Quotas for Founder Terminals
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: founder-resource-quota
+  namespace: warp-speed-founders
+spec:
+  hard:
+    requests.cpu: "200"
+    requests.memory: "500Gi"
+    requests.nvidia.com/gpu: "1"
+    limits.cpu: "400"
+    limits.memory: "1000Gi"
+    limits.nvidia.com/gpu: "1"
+    persistentvolumeclaims: "10"
+    count/secrets: "20"

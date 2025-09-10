@@ -1,0 +1,346 @@
+name: Task Management Dashboard
+
+on:
+  schedule:
+    - cron: '0 */6 * * *' # Every 6 hours
+  workflow_dispatch:
+  issues:
+    types: [opened, closed, labeled, unlabeled]
+
+permissions:
+  contents: write
+  issues: write
+  pages: write
+  id-token: write
+
+jobs:
+  generate-dashboard:
+    name: Generate Task Dashboard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+
+      - name: Collect task metrics
+        id: metrics
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Get all open issues
+            const { data: openIssues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              per_page: 100
+            });
+            
+            // Get recently closed issues
+            const { data: closedIssues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'closed',
+              since: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+              per_page: 100
+            });
+            
+            // Analyze metrics
+            const metrics = {
+              total_open: openIssues.length,
+              total_closed_30d: closedIssues.length,
+              by_label: {},
+              by_assignee: {},
+              by_complexity: { low: 0, medium: 0, high: 0, epic: 0 },
+              velocity: {
+                daily: 0,
+                weekly: 0,
+                monthly: 0
+              },
+              ai_metrics: {
+                ai_analyzed: 0,
+                ai_implemented: 0,
+                ai_reviewed: 0
+              }
+            };
+            
+            // Process open issues
+            for (const issue of openIssues) {
+              // By label
+              for (const label of issue.labels) {
+                metrics.by_label[label.name] = (metrics.by_label[label.name] || 0) + 1;
+                
+                // AI metrics
+                if (label.name === 'ai-analyzed') metrics.ai_metrics.ai_analyzed++;
+                if (label.name === 'ai-implemented') metrics.ai_metrics.ai_implemented++;
+                if (label.name === 'ai-reviewed') metrics.ai_metrics.ai_reviewed++;
+              }
+              
+              // By assignee
+              for (const assignee of issue.assignees) {
+                metrics.by_assignee[assignee.login] = (metrics.by_assignee[assignee.login] || 0) + 1;
+              }
+              
+              // By complexity
+              const complexityLabel = issue.labels.find(l => l.name.startsWith('complexity:'));
+              if (complexityLabel) {
+                const level = complexityLabel.name.split(':')[1];
+                metrics.by_complexity[level]++;
+              }
+            }
+            
+            // Calculate velocity
+            const now = new Date();
+            for (const issue of closedIssues) {
+              const closedDate = new Date(issue.closed_at);
+              const daysAgo = (now - closedDate) / (1000 * 60 * 60 * 24);
+              
+              if (daysAgo <= 1) metrics.velocity.daily++;
+              if (daysAgo <= 7) metrics.velocity.weekly++;
+              metrics.velocity.monthly++;
+            }
+            
+            return metrics;
+
+      - name: Generate dashboard HTML
+        run: |
+          cat > dashboard.html << 'EOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>Katalyst React - Task Management Dashboard</title>
+              <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+              <script src="https://cdn.tailwindcss.com"></script>
+          </head>
+          <body class="bg-gray-100">
+              <div class="container mx-auto px-4 py-8">
+                  <h1 class="text-4xl font-bold mb-8">Task Management Dashboard</h1>
+                  
+                  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                      <div class="bg-white rounded-lg shadow p-6">
+                          <h3 class="text-lg font-semibold text-gray-600">Open Tasks</h3>
+                          <p class="text-3xl font-bold text-blue-600" id="open-tasks">-</p>
+                      </div>
+                      <div class="bg-white rounded-lg shadow p-6">
+                          <h3 class="text-lg font-semibold text-gray-600">Closed (30d)</h3>
+                          <p class="text-3xl font-bold text-green-600" id="closed-tasks">-</p>
+                      </div>
+                      <div class="bg-white rounded-lg shadow p-6">
+                          <h3 class="text-lg font-semibold text-gray-600">AI Analyzed</h3>
+                          <p class="text-3xl font-bold text-purple-600" id="ai-analyzed">-</p>
+                      </div>
+                      <div class="bg-white rounded-lg shadow p-6">
+                          <h3 class="text-lg font-semibold text-gray-600">Weekly Velocity</h3>
+                          <p class="text-3xl font-bold text-orange-600" id="velocity">-</p>
+                      </div>
+                  </div>
+                  
+                  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                      <div class="bg-white rounded-lg shadow p-6">
+                          <h2 class="text-xl font-semibold mb-4">Tasks by Complexity</h2>
+                          <canvas id="complexity-chart"></canvas>
+                      </div>
+                      <div class="bg-white rounded-lg shadow p-6">
+                          <h2 class="text-xl font-semibold mb-4">Tasks by Label</h2>
+                          <canvas id="label-chart"></canvas>
+                      </div>
+                  </div>
+                  
+                  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                      <div class="bg-white rounded-lg shadow p-6">
+                          <h2 class="text-xl font-semibold mb-4">Tasks by Assignee</h2>
+                          <canvas id="assignee-chart"></canvas>
+                      </div>
+                      <div class="bg-white rounded-lg shadow p-6">
+                          <h2 class="text-xl font-semibold mb-4">Velocity Trend</h2>
+                          <canvas id="velocity-chart"></canvas>
+                      </div>
+                  </div>
+                  
+                  <div class="bg-white rounded-lg shadow p-6">
+                      <h2 class="text-xl font-semibold mb-4">AI Automation Status</h2>
+                      <div class="grid grid-cols-3 gap-4">
+                          <div class="text-center">
+                              <div class="text-3xl font-bold text-blue-600" id="ai-percentage">-</div>
+                              <p class="text-gray-600">AI Coverage</p>
+                          </div>
+                          <div class="text-center">
+                              <div class="text-3xl font-bold text-green-600" id="automation-rate">-</div>
+                              <p class="text-gray-600">Automation Rate</p>
+                          </div>
+                          <div class="text-center">
+                              <div class="text-3xl font-bold text-purple-600" id="time-saved">-</div>
+                              <p class="text-gray-600">Hours Saved</p>
+                          </div>
+                      </div>
+                  </div>
+                  
+                  <div class="mt-8 text-center text-gray-600">
+                      <p>Last updated: <span id="last-updated">-</span></p>
+                  </div>
+              </div>
+              
+              <script>
+                  // Metrics data will be injected here
+                  const metrics = METRICS_PLACEHOLDER;
+                  
+                  // Update summary cards
+                  document.getElementById('open-tasks').textContent = metrics.total_open;
+                  document.getElementById('closed-tasks').textContent = metrics.total_closed_30d;
+                  document.getElementById('ai-analyzed').textContent = metrics.ai_metrics.ai_analyzed;
+                  document.getElementById('velocity').textContent = metrics.velocity.weekly;
+                  
+                  // AI metrics
+                  const aiCoverage = Math.round((metrics.ai_metrics.ai_analyzed / metrics.total_open) * 100) || 0;
+                  document.getElementById('ai-percentage').textContent = aiCoverage + '%';
+                  document.getElementById('automation-rate').textContent = 
+                    Math.round((metrics.ai_metrics.ai_implemented / metrics.ai_metrics.ai_analyzed) * 100) || 0 + '%';
+                  document.getElementById('time-saved').textContent = 
+                    Math.round(metrics.ai_metrics.ai_implemented * 4) + 'h'; // Estimate 4h saved per AI implementation
+                  
+                  // Update timestamp
+                  document.getElementById('last-updated').textContent = new Date().toLocaleString();
+                  
+                  // Complexity chart
+                  new Chart(document.getElementById('complexity-chart'), {
+                      type: 'doughnut',
+                      data: {
+                          labels: Object.keys(metrics.by_complexity),
+                          datasets: [{
+                              data: Object.values(metrics.by_complexity),
+                              backgroundColor: ['#10b981', '#f59e0b', '#ef4444', '#8b5cf6']
+                          }]
+                      }
+                  });
+                  
+                  // Label chart
+                  const labelData = Object.entries(metrics.by_label)
+                      .sort((a, b) => b[1] - a[1])
+                      .slice(0, 10);
+                  new Chart(document.getElementById('label-chart'), {
+                      type: 'bar',
+                      data: {
+                          labels: labelData.map(([label]) => label),
+                          datasets: [{
+                              label: 'Count',
+                              data: labelData.map(([, count]) => count),
+                              backgroundColor: '#3b82f6'
+                          }]
+                      },
+                      options: {
+                          scales: {
+                              y: { beginAtZero: true }
+                          }
+                      }
+                  });
+                  
+                  // Assignee chart
+                  const assigneeData = Object.entries(metrics.by_assignee)
+                      .sort((a, b) => b[1] - a[1]);
+                  new Chart(document.getElementById('assignee-chart'), {
+                      type: 'horizontalBar',
+                      data: {
+                          labels: assigneeData.map(([name]) => name),
+                          datasets: [{
+                              label: 'Assigned Tasks',
+                              data: assigneeData.map(([, count]) => count),
+                              backgroundColor: '#8b5cf6'
+                          }]
+                      }
+                  });
+                  
+                  // Velocity chart
+                  new Chart(document.getElementById('velocity-chart'), {
+                      type: 'line',
+                      data: {
+                          labels: ['Daily', 'Weekly', 'Monthly'],
+                          datasets: [{
+                              label: 'Tasks Completed',
+                              data: [metrics.velocity.daily, metrics.velocity.weekly, metrics.velocity.monthly],
+                              borderColor: '#10b981',
+                              backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                              tension: 0.4
+                          }]
+                      }
+                  });
+              </script>
+          </body>
+          </html>
+          EOF
+
+      - name: Inject metrics into dashboard
+        run: |
+          METRICS='${{ steps.metrics.outputs.result }}'
+          sed -i "s/METRICS_PLACEHOLDER/$METRICS/g" dashboard.html
+
+      - name: Generate markdown report
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const metrics = ${{ steps.metrics.outputs.result }};
+            
+            const report = `# 📊 Task Management Report
+            
+            Generated: ${new Date().toISOString()}
+            
+            ## Summary
+            - **Open Tasks**: ${metrics.total_open}
+            - **Closed (30d)**: ${metrics.total_closed_30d}
+            - **Weekly Velocity**: ${metrics.velocity.weekly} tasks/week
+            
+            ## AI Automation
+            - **AI Analyzed**: ${metrics.ai_metrics.ai_analyzed} tasks
+            - **AI Implemented**: ${metrics.ai_metrics.ai_implemented} tasks
+            - **AI Reviewed**: ${metrics.ai_metrics.ai_reviewed} PRs
+            - **Automation Rate**: ${Math.round((metrics.ai_metrics.ai_implemented / metrics.ai_metrics.ai_analyzed) * 100) || 0}%
+            
+            ## Task Distribution
+            
+            ### By Complexity
+            ${Object.entries(metrics.by_complexity)
+              .map(([level, count]) => `- **${level}**: ${count} tasks`)
+              .join('\n')}
+            
+            ### Top Labels
+            ${Object.entries(metrics.by_label)
+              .sort(([,a], [,b]) => b - a)
+              .slice(0, 5)
+              .map(([label, count]) => `- **${label}**: ${count} tasks`)
+              .join('\n')}
+            
+            ### By Assignee
+            ${Object.entries(metrics.by_assignee)
+              .sort(([,a], [,b]) => b - a)
+              .map(([assignee, count]) => `- **@${assignee}**: ${count} tasks`)
+              .join('\n') || 'No assigned tasks'}
+            
+            ## Recommendations
+            ${metrics.total_open > 50 ? '- Consider breaking down large tasks into smaller subtasks' : ''}
+            ${metrics.velocity.weekly < 5 ? '- Velocity is low, consider reviewing blockers' : ''}
+            ${metrics.ai_metrics.ai_analyzed < metrics.total_open * 0.5 ? '- Increase AI analysis coverage for better automation' : ''}
+            
+            [View Interactive Dashboard](https://swcstudio.github.io/katalyst-react/dashboard)
+            `;
+            
+            // Save report
+            require('fs').writeFileSync('task-report.md', report);
+
+      - name: Upload dashboard
+        uses: actions/upload-artifact@v4
+        with:
+          name: task-dashboard
+          path: |
+            dashboard.html
+            task-report.md
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .
+          destination_dir: dashboard
+          keep_files: true

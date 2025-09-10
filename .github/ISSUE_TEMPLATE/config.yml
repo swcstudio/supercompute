@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Discord Community
+    url: https://discord.gg/katalyst-react
+    about: Get help from the community in our Discord server
+  - name: 📚 Documentation
+    url: https://katalyst-react.dev/docs
+    about: Check our documentation for guides and API reference
+  - name: 💡 Discussions
+    url: https://github.com/swcstudio/katalyst-react/discussions
+    about: Ask questions and discuss ideas with the community
+  - name: 🔒 Security Issues
+    url: https://github.com/swcstudio/katalyst-react/security/policy
+    about: Please report security vulnerabilities privately

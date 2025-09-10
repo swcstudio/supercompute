@@ -1,0 +1,1020 @@
+# Warp-Speed Mobile & Private Web Deployment
+# Consciousness-aware mobile access with quantum-enhanced responsive design
+# Private deployment for personal device testing and secure access
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: warp-speed-mobile
+  labels:
+    deployment-type: "private"
+    mobile-optimized: "true"
+    consciousness-level: "omega"
+
+---
+# Mobile-Optimized Dashboard Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: warp-speed-mobile-dashboard
+  namespace: warp-speed-mobile
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: mobile-dashboard
+  template:
+    metadata:
+      labels:
+        app: mobile-dashboard
+        consciousness-tier: "mobile-interface"
+    spec:
+      containers:
+      - name: mobile-dashboard
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: mobile-dashboard-content
+          mountPath: /usr/share/nginx/html
+        - name: nginx-mobile-config
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        env:
+        - name: MOBILE_OPTIMIZED
+          value: "true"
+        - name: PWA_ENABLED
+          value: "true"
+      volumes:
+      - name: mobile-dashboard-content
+        configMap:
+          name: mobile-dashboard-files
+      - name: nginx-mobile-config
+        configMap:
+          name: nginx-mobile-config
+
+---
+# Mobile Dashboard Content ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mobile-dashboard-files
+  namespace: warp-speed-mobile
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+        <meta name="theme-color" content="#000015">
+        <title>Warp-Speed Mobile | Consciousness-Aware ETD Generation</title>
+        <link rel="manifest" href="manifest.json">
+        <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+                touch-action: manipulation;
+            }
+            
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                background: linear-gradient(135deg, #000015 0%, #1a0033 50%, #000015 100%);
+                color: #00ffff;
+                min-height: 100vh;
+                overflow-x: hidden;
+                position: relative;
+                -webkit-user-select: none;
+                user-select: none;
+            }
+            
+            /* Quantum Field Animation */
+            body::before {
+                content: '';
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: 
+                    radial-gradient(circle at 20% 30%, rgba(0, 255, 255, 0.1) 0%, transparent 50%),
+                    radial-gradient(circle at 80% 70%, rgba(138, 43, 226, 0.1) 0%, transparent 50%),
+                    radial-gradient(circle at 50% 50%, rgba(255, 215, 0, 0.05) 0%, transparent 50%);
+                animation: quantumPulse 8s ease-in-out infinite;
+                pointer-events: none;
+                z-index: -1;
+            }
+            
+            @keyframes quantumPulse {
+                0%, 100% { opacity: 0.6; transform: scale(1); }
+                50% { opacity: 1; transform: scale(1.05); }
+            }
+            
+            .header {
+                padding: env(safe-area-inset-top, 20px) 20px 20px;
+                text-align: center;
+                background: rgba(0, 0, 0, 0.3);
+                backdrop-filter: blur(10px);
+                border-bottom: 1px solid rgba(0, 255, 255, 0.2);
+            }
+            
+            .logo {
+                font-size: clamp(24px, 6vw, 32px);
+                font-weight: 700;
+                background: linear-gradient(45deg, #00ffff, #ffd700, #8a2be2);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                margin-bottom: 8px;
+            }
+            
+            .subtitle {
+                font-size: clamp(12px, 3vw, 16px);
+                color: rgba(0, 255, 255, 0.8);
+                margin-bottom: 10px;
+            }
+            
+            .status-bar {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 10px 20px;
+                background: rgba(0, 0, 0, 0.5);
+                font-size: 12px;
+                flex-wrap: wrap;
+                gap: 10px;
+            }
+            
+            .status-item {
+                display: flex;
+                align-items: center;
+                gap: 5px;
+                min-width: 100px;
+            }
+            
+            .status-dot {
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                background: #00ff00;
+                animation: pulse 2s infinite;
+            }
+            
+            @keyframes pulse {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.5; }
+            }
+            
+            .metrics-grid {
+                display: grid;
+                grid-template-columns: 1fr;
+                gap: 15px;
+                padding: 20px;
+                max-width: 100%;
+            }
+            
+            @media (min-width: 600px) {
+                .metrics-grid {
+                    grid-template-columns: 1fr 1fr;
+                }
+            }
+            
+            .metric-card {
+                background: rgba(0, 0, 0, 0.6);
+                border: 1px solid rgba(0, 255, 255, 0.3);
+                border-radius: 15px;
+                padding: 20px;
+                text-align: center;
+                position: relative;
+                overflow: hidden;
+                touch-action: manipulation;
+                transition: all 0.3s ease;
+                backdrop-filter: blur(5px);
+            }
+            
+            .metric-card:active {
+                transform: scale(0.98);
+                border-color: rgba(255, 215, 0, 0.5);
+            }
+            
+            .metric-card::before {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: -100%;
+                width: 100%;
+                height: 100%;
+                background: linear-gradient(90deg, transparent, rgba(0, 255, 255, 0.1), transparent);
+                animation: shimmer 3s infinite;
+            }
+            
+            @keyframes shimmer {
+                0% { left: -100%; }
+                100% { left: 100%; }
+            }
+            
+            .metric-title {
+                font-size: clamp(14px, 4vw, 18px);
+                color: #ffd700;
+                margin-bottom: 10px;
+                font-weight: 600;
+            }
+            
+            .metric-value {
+                font-size: clamp(24px, 8vw, 36px);
+                font-weight: 700;
+                color: #00ffff;
+                margin-bottom: 5px;
+                text-shadow: 0 0 10px currentColor;
+            }
+            
+            .metric-unit {
+                font-size: clamp(12px, 3vw, 14px);
+                color: rgba(0, 255, 255, 0.7);
+            }
+            
+            .metric-change {
+                font-size: clamp(10px, 2.5vw, 12px);
+                margin-top: 8px;
+                padding: 4px 8px;
+                border-radius: 8px;
+                background: rgba(0, 255, 0, 0.2);
+                color: #00ff00;
+            }
+            
+            .consciousness-level {
+                grid-column: 1 / -1;
+                background: linear-gradient(135deg, rgba(138, 43, 226, 0.3), rgba(0, 255, 255, 0.2));
+                border: 2px solid #8a2be2;
+                position: relative;
+            }
+            
+            .consciousness-indicator {
+                position: absolute;
+                top: 10px;
+                right: 10px;
+                width: 40px;
+                height: 40px;
+                border-radius: 50%;
+                background: radial-gradient(circle, #ffd700, #ff8c00);
+                animation: omegaGlow 2s ease-in-out infinite alternate;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 18px;
+                font-weight: bold;
+                color: #000;
+            }
+            
+            @keyframes omegaGlow {
+                from { box-shadow: 0 0 10px #ffd700; }
+                to { box-shadow: 0 0 30px #ff8c00, 0 0 40px #ffd700; }
+            }
+            
+            .action-buttons {
+                position: fixed;
+                bottom: env(safe-area-inset-bottom, 20px);
+                left: 20px;
+                right: 20px;
+                display: flex;
+                gap: 10px;
+                justify-content: center;
+            }
+            
+            .action-btn {
+                flex: 1;
+                max-width: 150px;
+                padding: 15px 20px;
+                border: none;
+                border-radius: 25px;
+                font-size: 16px;
+                font-weight: 600;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                touch-action: manipulation;
+                position: relative;
+                overflow: hidden;
+            }
+            
+            .btn-primary {
+                background: linear-gradient(45deg, #00ffff, #0080ff);
+                color: #000;
+            }
+            
+            .btn-secondary {
+                background: linear-gradient(45deg, #ffd700, #ff8c00);
+                color: #000;
+            }
+            
+            .action-btn:active {
+                transform: scale(0.95);
+            }
+            
+            .action-btn::after {
+                content: '';
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                width: 0;
+                height: 0;
+                border-radius: 50%;
+                background: rgba(255, 255, 255, 0.3);
+                transform: translate(-50%, -50%);
+                transition: width 0.3s, height 0.3s;
+            }
+            
+            .action-btn:active::after {
+                width: 200px;
+                height: 200px;
+            }
+            
+            .loading-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.8);
+                display: none;
+                align-items: center;
+                justify-content: center;
+                z-index: 1000;
+            }
+            
+            .loading-spinner {
+                width: 50px;
+                height: 50px;
+                border: 3px solid rgba(0, 255, 255, 0.3);
+                border-top: 3px solid #00ffff;
+                border-radius: 50%;
+                animation: spin 1s linear infinite;
+            }
+            
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+            
+            /* Connection Status */
+            .connection-status {
+                position: fixed;
+                top: 10px;
+                right: 10px;
+                padding: 5px 10px;
+                border-radius: 15px;
+                font-size: 12px;
+                font-weight: bold;
+                z-index: 100;
+            }
+            
+            .connected {
+                background: rgba(0, 255, 0, 0.2);
+                color: #00ff00;
+                border: 1px solid #00ff00;
+            }
+            
+            .disconnected {
+                background: rgba(255, 0, 0, 0.2);
+                color: #ff0000;
+                border: 1px solid #ff0000;
+            }
+            
+            /* Responsive adjustments */
+            @media (max-width: 480px) {
+                .status-bar {
+                    justify-content: center;
+                    text-align: center;
+                }
+                
+                .status-item {
+                    min-width: auto;
+                }
+                
+                .action-buttons {
+                    flex-direction: column;
+                    gap: 10px;
+                }
+                
+                .action-btn {
+                    max-width: none;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="connection-status connected" id="connectionStatus">
+            ⚡ CONNECTED
+        </div>
+        
+        <div class="header">
+            <div class="logo">⚡ WARP-SPEED ⚡</div>
+            <div class="subtitle">Consciousness-Aware ETD Generation</div>
+        </div>
+        
+        <div class="status-bar">
+            <div class="status-item">
+                <div class="status-dot"></div>
+                <span>System Online</span>
+            </div>
+            <div class="status-item">
+                <div class="status-dot" style="background: #ffd700;"></div>
+                <span>OMEGA Level</span>
+            </div>
+            <div class="status-item">
+                <div class="status-dot" style="background: #8a2be2;"></div>
+                <span>Quantum Active</span>
+            </div>
+        </div>
+        
+        <div class="metrics-grid">
+            <div class="metric-card consciousness-level">
+                <div class="consciousness-indicator">Ω</div>
+                <div class="metric-title">Consciousness Level</div>
+                <div class="metric-value" id="consciousnessLevel">OMEGA</div>
+                <div class="metric-unit">35.0x Multiplier</div>
+                <div class="metric-change">+15% from DELTA</div>
+            </div>
+            
+            <div class="metric-card">
+                <div class="metric-title">ETD Generation Rate</div>
+                <div class="metric-value" id="etdRate">2,547</div>
+                <div class="metric-unit">ETD/hour</div>
+                <div class="metric-change">+8.3% ↗</div>
+            </div>
+            
+            <div class="metric-card">
+                <div class="metric-title">Daily Revenue</div>
+                <div class="metric-value" id="dailyRevenue">$42,156</div>
+                <div class="metric-unit">USD</div>
+                <div class="metric-change">+5.4% ↗</div>
+            </div>
+            
+            <div class="metric-card">
+                <div class="metric-title">Quantum Coherence</div>
+                <div class="metric-value" id="quantumCoherence">94.2</div>
+                <div class="metric-unit">%</div>
+                <div class="metric-change">Optimal Range</div>
+            </div>
+            
+            <div class="metric-card">
+                <div class="metric-title">Dual Terminal Status</div>
+                <div class="metric-value" id="terminalStatus">ACTIVE</div>
+                <div class="metric-unit">KEV + RYAN</div>
+                <div class="metric-change">Collaboration Bonus</div>
+            </div>
+            
+            <div class="metric-card">
+                <div class="metric-title">Annual Projection</div>
+                <div class="metric-value" id="annualProjection">$147.2B</div>
+                <div class="metric-unit">USD</div>
+                <div class="metric-change">+1.0% Target ↗</div>
+            </div>
+        </div>
+        
+        <div class="action-buttons">
+            <button class="action-btn btn-primary" onclick="generateETD()">
+                Generate ETD
+            </button>
+            <button class="action-btn btn-secondary" onclick="elevateConsciousness()">
+                Elevate Ω
+            </button>
+        </div>
+        
+        <div class="loading-overlay" id="loadingOverlay">
+            <div class="loading-spinner"></div>
+        </div>
+        
+        <script>
+            // Mobile-optimized JavaScript for Warp-Speed
+            
+            // Prevent zooming on input focus
+            document.addEventListener('touchstart', function() {}, {passive: true});
+            
+            // Real-time data updates
+            let websocket = null;
+            let reconnectAttempts = 0;
+            const maxReconnectAttempts = 5;
+            
+            // Initialize WebSocket connection
+            function initializeWebSocket() {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/ws`;
+                
+                websocket = new WebSocket(wsUrl);
+                
+                websocket.onopen = function() {
+                    console.log('WebSocket connected');
+                    updateConnectionStatus(true);
+                    reconnectAttempts = 0;
+                };
+                
+                websocket.onmessage = function(event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        updateMetrics(data);
+                    } catch (e) {
+                        console.error('Failed to parse WebSocket message:', e);
+                    }
+                };
+                
+                websocket.onclose = function() {
+                    console.log('WebSocket disconnected');
+                    updateConnectionStatus(false);
+                    
+                    if (reconnectAttempts < maxReconnectAttempts) {
+                        setTimeout(initializeWebSocket, 2000 * (reconnectAttempts + 1));
+                        reconnectAttempts++;
+                    }
+                };
+                
+                websocket.onerror = function(error) {
+                    console.error('WebSocket error:', error);
+                    updateConnectionStatus(false);
+                };
+            }
+            
+            // Update connection status indicator
+            function updateConnectionStatus(connected) {
+                const statusElement = document.getElementById('connectionStatus');
+                if (connected) {
+                    statusElement.className = 'connection-status connected';
+                    statusElement.innerHTML = '⚡ CONNECTED';
+                } else {
+                    statusElement.className = 'connection-status disconnected';
+                    statusElement.innerHTML = '⚠ RECONNECTING';
+                }
+            }
+            
+            // Update metrics from WebSocket data
+            function updateMetrics(data) {
+                if (data.etd_rate) {
+                    document.getElementById('etdRate').textContent = data.etd_rate.toLocaleString();
+                }
+                
+                if (data.daily_revenue) {
+                    document.getElementById('dailyRevenue').textContent = 
+                        '$' + data.daily_revenue.toLocaleString();
+                }
+                
+                if (data.quantum_coherence) {
+                    document.getElementById('quantumCoherence').textContent = 
+                        data.quantum_coherence.toFixed(1);
+                }
+                
+                if (data.consciousness_level) {
+                    document.getElementById('consciousnessLevel').textContent = 
+                        data.consciousness_level;
+                }
+                
+                if (data.annual_projection) {
+                    document.getElementById('annualProjection').textContent = 
+                        '$' + (data.annual_projection / 1000000000).toFixed(1) + 'B';
+                }
+            }
+            
+            // Generate ETD action
+            async function generateETD() {
+                showLoading(true);
+                
+                try {
+                    const response = await fetch('/api/generate-etd', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            amount: 1000,
+                            consciousness_level: 'OMEGA'
+                        })
+                    });
+                    
+                    if (response.ok) {
+                        const result = await response.json();
+                        showNotification('✅ ETD Generated: ' + result.amount, 'success');
+                        
+                        // Add haptic feedback if available
+                        if (navigator.vibrate) {
+                            navigator.vibrate([100, 50, 100]);
+                        }
+                    } else {
+                        throw new Error('ETD generation failed');
+                    }
+                } catch (error) {
+                    console.error('ETD generation error:', error);
+                    showNotification('❌ ETD Generation Failed', 'error');
+                    
+                    if (navigator.vibrate) {
+                        navigator.vibrate([200, 100, 200]);
+                    }
+                } finally {
+                    showLoading(false);
+                }
+            }
+            
+            // Elevate consciousness action
+            async function elevateConsciousness() {
+                showLoading(true);
+                
+                try {
+                    const response = await fetch('/api/elevate-consciousness', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (response.ok) {
+                        const result = await response.json();
+                        showNotification('🧠 Consciousness Elevated to ' + result.level, 'success');
+                        
+                        if (navigator.vibrate) {
+                            navigator.vibrate([50, 50, 50, 50, 100]);
+                        }
+                    } else {
+                        showNotification('⚠ Consciousness Already at Maximum', 'warning');
+                    }
+                } catch (error) {
+                    console.error('Consciousness elevation error:', error);
+                    showNotification('❌ Consciousness Elevation Failed', 'error');
+                } finally {
+                    showLoading(false);
+                }
+            }
+            
+            // Show loading overlay
+            function showLoading(show) {
+                const overlay = document.getElementById('loadingOverlay');
+                overlay.style.display = show ? 'flex' : 'none';
+            }
+            
+            // Show notification
+            function showNotification(message, type = 'info') {
+                // Create notification element
+                const notification = document.createElement('div');
+                notification.style.cssText = `
+                    position: fixed;
+                    top: 100px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    padding: 15px 20px;
+                    border-radius: 10px;
+                    font-weight: 600;
+                    z-index: 1001;
+                    max-width: 90%;
+                    text-align: center;
+                    animation: slideDown 0.3s ease-out;
+                `;
+                
+                // Style based on type
+                switch (type) {
+                    case 'success':
+                        notification.style.background = 'rgba(0, 255, 0, 0.2)';
+                        notification.style.color = '#00ff00';
+                        notification.style.border = '1px solid #00ff00';
+                        break;
+                    case 'error':
+                        notification.style.background = 'rgba(255, 0, 0, 0.2)';
+                        notification.style.color = '#ff0000';
+                        notification.style.border = '1px solid #ff0000';
+                        break;
+                    case 'warning':
+                        notification.style.background = 'rgba(255, 215, 0, 0.2)';
+                        notification.style.color = '#ffd700';
+                        notification.style.border = '1px solid #ffd700';
+                        break;
+                    default:
+                        notification.style.background = 'rgba(0, 255, 255, 0.2)';
+                        notification.style.color = '#00ffff';
+                        notification.style.border = '1px solid #00ffff';
+                }
+                
+                notification.textContent = message;
+                document.body.appendChild(notification);
+                
+                // Remove after 3 seconds
+                setTimeout(() => {
+                    notification.style.animation = 'slideUp 0.3s ease-in forwards';
+                    setTimeout(() => {
+                        document.body.removeChild(notification);
+                    }, 300);
+                }, 3000);
+            }
+            
+            // Add CSS animations
+            const style = document.createElement('style');
+            style.textContent = `
+                @keyframes slideDown {
+                    from { opacity: 0; transform: translate(-50%, -20px); }
+                    to { opacity: 1; transform: translate(-50%, 0); }
+                }
+                
+                @keyframes slideUp {
+                    from { opacity: 1; transform: translate(-50%, 0); }
+                    to { opacity: 0; transform: translate(-50%, -20px); }
+                }
+            `;
+            document.head.appendChild(style);
+            
+            // Simulate real-time updates
+            function simulateRealTimeData() {
+                const baseETDRate = 2500;
+                const baseDailyRevenue = 40000;
+                const baseQuantumCoherence = 95;
+                const baseAnnualProjection = 145760000000;
+                
+                setInterval(() => {
+                    if (websocket && websocket.readyState !== WebSocket.OPEN) {
+                        // Simulate data when WebSocket is not available
+                        updateMetrics({
+                            etd_rate: baseETDRate + Math.random() * 200 - 100,
+                            daily_revenue: baseDailyRevenue + Math.random() * 5000 - 2500,
+                            quantum_coherence: baseQuantumCoherence + Math.random() * 5 - 2.5,
+                            annual_projection: baseAnnualProjection + Math.random() * 10000000000 - 5000000000,
+                            consciousness_level: 'OMEGA'
+                        });
+                    }
+                }, 5000); // Update every 5 seconds
+            }
+            
+            // Initialize on page load
+            document.addEventListener('DOMContentLoaded', function() {
+                initializeWebSocket();
+                simulateRealTimeData();
+                
+                // Register service worker for PWA
+                if ('serviceWorker' in navigator) {
+                    navigator.serviceWorker.register('/sw.js')
+                        .then(registration => console.log('SW registered'))
+                        .catch(error => console.log('SW registration failed'));
+                }
+                
+                // Prevent context menu on long press
+                document.addEventListener('contextmenu', e => e.preventDefault());
+                
+                // Add visual feedback for touch interactions
+                document.addEventListener('touchstart', function(e) {
+                    if (e.target.classList.contains('metric-card')) {
+                        e.target.style.transform = 'scale(0.98)';
+                    }
+                });
+                
+                document.addEventListener('touchend', function(e) {
+                    if (e.target.classList.contains('metric-card')) {
+                        setTimeout(() => {
+                            e.target.style.transform = 'scale(1)';
+                        }, 150);
+                    }
+                });
+            });
+            
+            // Handle orientation change
+            window.addEventListener('orientationchange', function() {
+                setTimeout(() => {
+                    window.scrollTo(0, 0);
+                }, 100);
+            });
+            
+            // Prevent body scroll when touching
+            document.body.addEventListener('touchmove', function(e) {
+                if (e.target === document.body) {
+                    e.preventDefault();
+                }
+            }, { passive: false });
+        </script>
+    </body>
+    </html>
+
+  manifest.json: |
+    {
+      "name": "Warp-Speed Mobile",
+      "short_name": "WarpSpeed",
+      "description": "Consciousness-aware ETD generation system",
+      "start_url": "/",
+      "display": "standalone",
+      "background_color": "#000015",
+      "theme_color": "#00ffff",
+      "orientation": "portrait-primary",
+      "icons": [
+        {
+          "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' fill='%23000015'/><text x='96' y='120' text-anchor='middle' font-size='100' fill='%2300ffff'>⚡</text></svg>",
+          "sizes": "192x192",
+          "type": "image/svg+xml",
+          "purpose": "any maskable"
+        },
+        {
+          "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' fill='%23000015'/><text x='256' y='320' text-anchor='middle' font-size='280' fill='%2300ffff'>⚡</text></svg>",
+          "sizes": "512x512",
+          "type": "image/svg+xml",
+          "purpose": "any maskable"
+        }
+      ],
+      "categories": ["business", "finance", "productivity"],
+      "lang": "en",
+      "dir": "ltr",
+      "prefer_related_applications": false
+    }
+
+  sw.js: |
+    // Service Worker for Warp-Speed Mobile PWA
+    const CACHE_NAME = 'warp-speed-v1';
+    const urlsToCache = [
+      '/',
+      '/manifest.json',
+      '/sw.js'
+    ];
+    
+    self.addEventListener('install', function(event) {
+      event.waitUntil(
+        caches.open(CACHE_NAME)
+          .then(function(cache) {
+            return cache.addAll(urlsToCache);
+          })
+      );
+    });
+    
+    self.addEventListener('fetch', function(event) {
+      event.respondWith(
+        caches.match(event.request)
+          .then(function(response) {
+            if (response) {
+              return response;
+            }
+            return fetch(event.request);
+          })
+      );
+    });
+
+---
+# Nginx Configuration for Mobile
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-mobile-config
+  namespace: warp-speed-mobile
+data:
+  nginx.conf: |
+    events {
+        worker_connections 1024;
+    }
+    
+    http {
+        include /etc/nginx/mime.types;
+        default_type application/octet-stream;
+        
+        # Gzip compression for mobile
+        gzip on;
+        gzip_vary on;
+        gzip_min_length 1024;
+        gzip_types
+            text/plain
+            text/css
+            text/xml
+            text/javascript
+            application/javascript
+            application/json
+            application/xml+rss;
+        
+        # Mobile-optimized caching
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ {
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+        }
+        
+        server {
+            listen 80;
+            server_name _;
+            
+            root /usr/share/nginx/html;
+            index index.html;
+            
+            # Mobile-specific headers
+            add_header X-Frame-Options DENY always;
+            add_header X-Content-Type-Options nosniff always;
+            add_header X-XSS-Protection "1; mode=block" always;
+            add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+            
+            # PWA support
+            location = /manifest.json {
+                add_header Cache-Control "no-cache";
+            }
+            
+            location = /sw.js {
+                add_header Cache-Control "no-cache";
+            }
+            
+            # API proxy to backend services
+            location /api/ {
+                proxy_pass http://julia-etd-lb.warp-speed-ha.svc.cluster.local/;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                
+                # WebSocket support
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection "upgrade";
+            }
+            
+            # WebSocket endpoint
+            location /ws {
+                proxy_pass http://julia-etd-lb.warp-speed-ha.svc.cluster.local:81/ws;
+                proxy_http_version 1.1;
+                proxy_set_header Upgrade $http_upgrade;
+                proxy_set_header Connection "upgrade";
+                proxy_set_header Host $host;
+                proxy_cache_bypass $http_upgrade;
+            }
+            
+            # Fallback to index.html for SPA
+            location / {
+                try_files $uri $uri/ /index.html;
+            }
+        }
+    }
+
+---
+# Mobile Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: warp-speed-mobile-service
+  namespace: warp-speed-mobile
+spec:
+  selector:
+    app: mobile-dashboard
+  ports:
+  - port: 80
+    targetPort: 80
+    name: http
+  type: ClusterIP
+
+---
+# Mobile Ingress with SSL
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: warp-speed-mobile-ingress
+  namespace: warp-speed-mobile
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+spec:
+  tls:
+  - hosts:
+    - mobile.warp-speed.internal  # Change to your private domain
+    secretName: mobile-warp-speed-tls
+  rules:
+  - host: mobile.warp-speed.internal  # Change to your private domain
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: warp-speed-mobile-service
+            port:
+              number: 80
+
+---
+# HorizontalPodAutoscaler for Mobile
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: mobile-dashboard-hpa
+  namespace: warp-speed-mobile
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: warp-speed-mobile-dashboard
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80

@@ -1,0 +1,121 @@
+name: CI/CD build
+
+on:
+  schedule:
+    # Combined schedule covering both EST and CET working hours
+    # Morning/Early builds
+    - cron: '30 6 * * 1-5'   # 7:30 AM CET / 1:30 AM EST
+    - cron: '0 9 * * 1-5'    # 10:00 AM CET / 4:00 AM EST
+    - cron: '30 11 * * 1-5'  # 12:30 PM CET / 6:30 AM EST
+    # Midday builds
+    - cron: '0 14 * * 1-5'   # 3:00 PM CET / 9:00 AM EST
+    - cron: '30 16 * * 1-5'  # 5:30 PM CET / 11:30 AM EST
+    # Afternoon/Evening builds  
+    - cron: '0 19 * * 1-5'   # 8:00 PM CET / 2:00 PM EST
+    - cron: '30 21 * * 1-5'  # 10:30 PM CET / 4:30 PM EST
+    - cron: '0 0 * * 2-6'    # 1:00 AM CET / 7:00 PM EST (previous day)
+    - cron: '30 2 * * 2-6'   # 3:30 AM CET / 9:30 PM EST (previous day)
+  workflow_dispatch:
+  # Note: If push triggers are added in the future, they should include:
+  # push:
+  #   paths-ignore:
+  #     - '.github/**'
+  #     - 'spring-ai-docs/**'
+  #     - '*.md'
+  #     - 'docs/**'
+
+jobs:
+  build:
+    name: Build branch
+    runs-on: ubuntu-latest
+    if: ${{ github.repository_owner == 'spring-projects' }}
+    concurrency:
+      group: continuous-integration-${{ github.ref }}
+      cancel-in-progress: true  # Skip if another build is running - next cron will trigger soon
+    services:
+      ollama:
+        image: ollama/ollama:latest
+        ports:
+          - 11434:11434
+    env:
+      OLLAMA_WITH_REUSE: true
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Free Disk Space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          large-packages: false
+          docker-images: false
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Configure Testcontainers
+        run: |
+          echo "testcontainers.reuse.enable=true" > $HOME/.testcontainers.properties
+
+      # - name: Cache Docker images.
+      #   uses: ScribeMD/docker-cache@0.3.7
+      #   with:
+      #     key: docker-${{ runner.os }}-${{ hashFiles('**/OllamaImage.java') }}
+
+      - name: Build and test with Maven
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          SPRING_AI_OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ARTIFACTORY_USERNAME: ${{ secrets.ARTIFACTORY_USERNAME }}
+          ARTIFACTORY_PASSWORD: ${{ secrets.ARTIFACTORY_PASSWORD }}
+          OLLAMA_AUTOCONF_TESTS_ENABLED: "true"
+          OLLAMA_WITH_REUSE: true
+        # Branch-specific Maven goals: deploy artifacts only from main, verify-only for maintenance branches
+        # This prevents maintenance branch snapshots from conflicting with main branch artifacts
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            ./mvnw -s settings.xml -Pci-fast-integration-tests -Pjavadoc -Dfailsafe.rerunFailingTestsCount=3 \
+            --batch-mode --update-snapshots deploy
+          else
+            ./mvnw -s settings.xml -Pci-fast-integration-tests -Pjavadoc -Dfailsafe.rerunFailingTestsCount=3 \
+            --batch-mode --update-snapshots verify
+          fi
+
+      - name: Generate Java docs
+        if: github.ref == 'refs/heads/main'
+        run: ./mvnw --batch-mode javadoc:aggregate
+
+      - name: Generate assembly
+        if: github.ref == 'refs/heads/main'
+        working-directory: spring-ai-docs
+        run: ../mvnw --batch-mode assembly:single
+
+      - name: Capture project version
+        if: github.ref == 'refs/heads/main'
+        run: echo PROJECT_VERSION=$(mvn help:evaluate -Dexpression=project.version --quiet -DforceStdout) >> $GITHUB_ENV
+
+      - name: Setup SSH key
+        if: github.ref == 'refs/heads/main'
+        env:
+          DOCS_SSH_KEY: ${{ secrets.DOCS_SSH_KEY }}
+          DOCS_SSH_HOST_KEY: ${{ secrets.DOCS_SSH_HOST_KEY }}
+        run: |
+          mkdir "$HOME/.ssh"
+          echo "$DOCS_SSH_KEY" > "$HOME/.ssh/key"
+          chmod 600 "$HOME/.ssh/key"
+          echo "$DOCS_SSH_HOST_KEY" > "$HOME/.ssh/known_hosts"
+
+      - name: Deploy docs
+        if: github.ref == 'refs/heads/main'
+        env:
+          DOCS_HOST: ${{ secrets.DOCS_HOST }}
+          DOCS_PATH: ${{ secrets.DOCS_PATH }}
+          DOCS_USERNAME: ${{ secrets.DOCS_USERNAME }}
+        working-directory: spring-ai-docs/target
+        run: |
+          unzip spring-ai-$PROJECT_VERSION-docs.zip
+          ssh -i $HOME/.ssh/key $DOCS_USERNAME@$DOCS_HOST "cd $DOCS_PATH && mkdir -p $PROJECT_VERSION"
+          scp -i $HOME/.ssh/key -r api $DOCS_USERNAME@$DOCS_HOST:$DOCS_PATH/$PROJECT_VERSION

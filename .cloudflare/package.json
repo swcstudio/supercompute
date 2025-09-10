@@ -1,0 +1,72 @@
+{
+  "name": "@katalyst/core-edge",
+  "version": "1.0.0",
+  "description": "Katalyst Core - Edge AI Functions for Vercel deployment",
+  "main": "index.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler publish",
+    "deploy:worker": "cd workers && wrangler publish",
+    "deploy:pages": "wrangler pages publish ../dist",
+    "setup": "./scripts/setup.sh",
+    "migrate": "wrangler d1 migrations apply katalyst-core-preferences && wrangler d1 migrations apply katalyst-core-conversations",
+    "migrate:local": "wrangler d1 migrations apply katalyst-core-preferences --local && wrangler d1 migrations apply katalyst-core-conversations --local",
+    "kv:list": "wrangler kv:namespace list",
+    "r2:list": "wrangler r2 bucket list",
+    "logs": "wrangler tail",
+    "test": "npm run test:unit && npm run test:integration",
+    "test:unit": "vitest run",
+    "test:integration": "playwright test",
+    "build": "npm run build:edge",
+    "build:edge": "tsc && rollup -c rollup.edge.config.js",
+    "build:ai": "wasm-pack build ./wasm/ai_processor",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --ext .ts,.tsx",
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.24.3",
+    "@cloudflare/workers-types": "^4.20240909.0",
+    "@cloudflare/ai": "^1.0.0",
+    "@vercel/edge": "^1.1.1",
+    "hono": "^4.0.0",
+    "zod": "^3.22.4",
+    "tiktoken": "^1.0.10"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "eslint": "^8.57.0",
+    "prettier": "^3.3.2",
+    "typescript": "^5.5.3",
+    "vitest": "^1.6.0",
+    "rollup": "^4.18.0",
+    "@rollup/plugin-typescript": "^11.1.6",
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "@rollup/plugin-wasm": "^6.2.2",
+    "wrangler": "^3.65.1",
+    "wasm-pack": "^0.12.1"
+  },
+  "keywords": [
+    "katalyst",
+    "ai",
+    "edge-computing",
+    "serverless",
+    "vercel",
+    "cloudflare-workers",
+    "llm",
+    "embeddings",
+    "rag",
+    "vector-search"
+  ],
+  "author": "SWC Studio",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/katalyst/framework.git"
+  },
+  "bugs": {
+    "url": "https://github.com/katalyst/framework/issues"
+  },
+  "homepage": "https://katalyst.io"
+}

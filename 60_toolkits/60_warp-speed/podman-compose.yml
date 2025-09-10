@@ -1,0 +1,166 @@
+version: '3.8'
+
+# Warp-Speed V2: Academic Supercompute System
+# Multi-database architecture for quantum memory management
+# Part of the Supercompute Dissertation Research
+
+services:
+  # DragonflyDB - Redis-compatible in-memory database
+  # Used for high-speed quantum state caching
+  dragonflydb:
+    image: docker.io/dragonflydb/dragonfly:latest
+    container_name: warp-dragonflydb
+    ports:
+      - "6379:6379"
+    volumes:
+      - /purplehat/dragonfly:/data
+    environment:
+      - DRAGONFLY_CACHE_MODE=true
+      - DRAGONFLY_MAX_MEMORY=4gb
+    restart: unless-stopped
+    networks:
+      - warp-network
+    command: >
+      --cache_mode=true
+      --dbfilename=quantum-state.rdb
+      --dir=/data
+      --maxmemory=4gb
+
+  # SpacetimeDB - Relational database for time-series quantum data
+  # Handles temporal consciousness state tracking
+  spacetimedb:
+    image: clockworklabs/spacetimedb:latest
+    container_name: warp-spacetimedb
+    ports:
+      - "3000:3000"
+    volumes:
+      - /purplehat/spacetime:/var/lib/spacetimedb
+    environment:
+      - SPACETIMEDB_LOG_LEVEL=info
+      - SPACETIMEDB_DATA_DIR=/var/lib/spacetimedb
+    restart: unless-stopped
+    networks:
+      - warp-network
+
+  # TimescaleDB - PostgreSQL with time-series optimization
+  # Stores ETD generation metrics and performance data
+  timescaledb:
+    image: timescale/timescaledb-ha:pg16
+    container_name: warp-timescaledb
+    ports:
+      - "5432:5432"
+    volumes:
+      - /purplehat/timescale:/var/lib/postgresql/data
+      - ./init-scripts/timescale-init.sql:/docker-entrypoint-initdb.d/init.sql
+    environment:
+      - POSTGRES_DB=warpspeed
+      - POSTGRES_USER=quantum
+      - POSTGRES_PASSWORD=omega_consciousness_2025
+      - TS_TUNE_MAX_CONNS=100
+      - TS_TUNE_MAX_BG_WORKERS=8
+    restart: unless-stopped
+    networks:
+      - warp-network
+
+  # PGVectorScale - PostgreSQL with vector extensions
+  # Handles AI embeddings and quantum vector operations
+  pgvectorscale:
+    image: timescale/timescaledb:latest-pg16
+    container_name: warp-pgvectorscale
+    ports:
+      - "5433:5432"
+    volumes:
+      - /purplehat/pgvector:/var/lib/postgresql/data
+      - ./init-scripts/pgvector-init.sql:/docker-entrypoint-initdb.d/init.sql
+    environment:
+      - POSTGRES_DB=warpvector
+      - POSTGRES_USER=quantum
+      - POSTGRES_PASSWORD=omega_consciousness_2025
+    restart: unless-stopped
+    networks:
+      - warp-network
+    command: >
+      postgres
+      -c shared_preload_libraries='timescaledb,vector'
+      -c timescaledb.telemetry_level=off
+
+  # MongoDB - Document store for complex quantum structures
+  # Stores consciousness states and prompt patterns
+  mongodb:
+    image: mongo:7
+    container_name: warp-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - /purplehat/mongo:/data/db
+      - ./init-scripts/mongo-init.js:/docker-entrypoint-initdb.d/init.js
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=quantum
+      - MONGO_INITDB_ROOT_PASSWORD=omega_consciousness_2025
+      - MONGO_INITDB_DATABASE=warpspeed
+    restart: unless-stopped
+    networks:
+      - warp-network
+
+  # Shared Inference Model Server
+  # Handles AI model inference for both Warp-Speed instances
+  inference-server:
+    image: ollama/ollama:latest
+    container_name: warp-inference
+    ports:
+      - "11434:11434"
+    volumes:
+      - /purplehat/models:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_MODELS=/root/.ollama
+      - OLLAMA_NUM_PARALLEL=2
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+    networks:
+      - warp-network
+
+  # Anoma VM for Educational Blockchain Research
+  anoma-testnet:
+    image: anoma/anoma:v0.1.0
+    container_name: warp-anoma
+    ports:
+      - "26657:26657"  # Tendermint RPC
+      - "26656:26656"  # Tendermint P2P
+    volumes:
+      - /purplehat/anoma:/home/anoma/.anoma
+    environment:
+      - ANOMA_MODE=testnet
+      - ANOMA_CHAIN_ID=warp-speed-research
+    restart: unless-stopped
+    networks:
+      - warp-network
+
+networks:
+  warp-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
+
+volumes:
+  dragonfly-data:
+    driver: local
+  spacetime-data:
+    driver: local
+  timescale-data:
+    driver: local
+  pgvector-data:
+    driver: local
+  mongo-data:
+    driver: local
+  models-data:
+    driver: local
+  anoma-data:
+    driver: local

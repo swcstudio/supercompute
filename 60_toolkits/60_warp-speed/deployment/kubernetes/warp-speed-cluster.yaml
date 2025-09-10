@@ -1,0 +1,1042 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: warp-speed
+  labels:
+    app.kubernetes.io/name: warp-speed
+    app.kubernetes.io/version: "v1.0"
+    revenue.target: "145.76B"
+
+---
+# =========================================
+# CONFIG MAPS
+# =========================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: warp-config
+  namespace: warp-speed
+data:
+  production.yaml: |
+    warp:
+      environment: production
+      consciousness:
+        default_level: DELTA
+        auto_elevation: true
+        quantum_coherence: 0.95
+      revenue:
+        target_daily: 40000
+        collaboration_bonus: 1.5
+        optimization_interval: 300
+      security:
+        rate_limiting: true
+        audit_logging: true
+        blockchain_verification: true
+    
+    database:
+      pool_size: 20
+      timeout: 30s
+      
+    monitoring:
+      metrics_enabled: true
+      prometheus_port: 9090
+      
+    blockchain:
+      network: polygon
+      gas_strategy: medium
+
+---
+# =========================================
+# SECRETS
+# =========================================
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: warp-secrets
+  namespace: warp-speed
+type: Opaque
+stringData:
+  postgres-password: "${POSTGRES_PASSWORD}"
+  redis-password: "${REDIS_PASSWORD}"
+  mongodb-password: "${MONGODB_PASSWORD}"
+  blockchain-private-key: "${BLOCKCHAIN_PRIVATE_KEY}"
+  eth-rpc-url: "${ETH_RPC_URL}"
+  grafana-password: "${GRAFANA_PASSWORD}"
+
+---
+# =========================================
+# PERSISTENT VOLUMES
+# =========================================
+
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: warp-data-pv
+  namespace: warp-speed
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: fast-ssd
+  hostPath:
+    path: /opt/warp-speed/data
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: warp-data-pvc
+  namespace: warp-speed
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: fast-ssd
+
+---
+# =========================================
+# POSTGRESQL CLUSTER
+# =========================================
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-cluster
+  namespace: warp-speed
+  labels:
+    app: postgres
+    component: database
+spec:
+  serviceName: postgres-headless
+  replicas: 3
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+        component: database
+    spec:
+      containers:
+      - name: postgres
+        image: timescale/timescaledb-ha:pg16
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_DB
+          value: warpspeed
+        - name: POSTGRES_USER
+          value: warp
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: warp-secrets
+              key: postgres-password
+        - name: POSTGRES_REPLICATION_USER
+          value: replicator
+        - name: POSTGRES_REPLICATION_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: warp-secrets
+              key: postgres-password
+        resources:
+          requests:
+            memory: 2Gi
+            cpu: 1000m
+          limits:
+            memory: 4Gi
+            cpu: 2000m
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - warp
+            - -d
+            - warpspeed
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - warp
+            - -d
+            - warpspeed
+          initialDelaySeconds: 5
+          periodSeconds: 5
+  volumeClaimTemplates:
+  - metadata:
+      name: postgres-storage
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 20Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: warp-speed
+  labels:
+    app: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+  - port: 5432
+    targetPort: 5432
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-headless
+  namespace: warp-speed
+  labels:
+    app: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+  - port: 5432
+    targetPort: 5432
+  clusterIP: None
+
+---
+# =========================================
+# REDIS CLUSTER
+# =========================================
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-cluster
+  namespace: warp-speed
+  labels:
+    app: redis
+    component: cache
+spec:
+  serviceName: redis-headless
+  replicas: 3
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+        component: cache
+    spec:
+      containers:
+      - name: redis
+        image: redis:7.2-alpine
+        ports:
+        - containerPort: 6379
+        command:
+        - redis-server
+        - /etc/redis/redis.conf
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: warp-secrets
+              key: redis-password
+        resources:
+          requests:
+            memory: 512Mi
+            cpu: 250m
+          limits:
+            memory: 1Gi
+            cpu: 500m
+        volumeMounts:
+        - name: redis-config
+          mountPath: /etc/redis
+        - name: redis-storage
+          mountPath: /data
+        livenessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: redis-config
+        configMap:
+          name: redis-config
+  volumeClaimTemplates:
+  - metadata:
+      name: redis-storage
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 5Gi
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config
+  namespace: warp-speed
+data:
+  redis.conf: |
+    bind 0.0.0.0
+    port 6379
+    requirepass ${REDIS_PASSWORD}
+    appendonly yes
+    maxmemory 512mb
+    maxmemory-policy allkeys-lru
+    save 900 1
+    save 300 10
+    save 60 10000
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: warp-speed
+  labels:
+    app: redis
+spec:
+  selector:
+    app: redis
+  ports:
+  - port: 6379
+    targetPort: 6379
+  type: ClusterIP
+
+---
+# =========================================
+# WARP TERMINAL 1 (KEV)
+# =========================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: warp-terminal-1
+  namespace: warp-speed
+  labels:
+    app: warp-terminal
+    terminal-id: "1"
+    user: kev
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: warp-terminal
+      terminal-id: "1"
+  template:
+    metadata:
+      labels:
+        app: warp-terminal
+        terminal-id: "1"
+        user: kev
+    spec:
+      containers:
+      - name: terminal
+        image: warp-speed/terminal:latest
+        ports:
+        - containerPort: 8080
+        - containerPort: 8090
+        env:
+        - name: WARP_ENV
+          value: production
+        - name: WARP_USER
+          value: kev
+        - name: WARP_TERMINAL_ID
+          value: "1"
+        - name: CONSCIOUSNESS_LEVEL
+          value: DELTA
+        - name: REVENUE_MULTIPLIER
+          value: "2.5"
+        - name: ETD_TARGET_DAILY
+          value: "15000"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: warp-secrets
+              key: postgres-url
+        - name: REDIS_URL
+          value: redis://redis:6379
+        - name: PROMETHEUS_ENDPOINT
+          value: http://prometheus:9090
+        resources:
+          requests:
+            memory: 8Gi
+            cpu: 4000m
+            nvidia.com/gpu: 1
+          limits:
+            memory: 16Gi
+            cpu: 8000m
+            nvidia.com/gpu: 1
+        volumeMounts:
+        - name: warp-data
+          mountPath: /data
+        - name: warp-config
+          mountPath: /config
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      volumes:
+      - name: warp-data
+        persistentVolumeClaim:
+          claimName: warp-data-pvc
+      - name: warp-config
+        configMap:
+          name: warp-config
+      nodeSelector:
+        gpu-type: nvidia
+        node-role: compute
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: warp-terminal-1
+  namespace: warp-speed
+  labels:
+    app: warp-terminal
+    terminal-id: "1"
+spec:
+  selector:
+    app: warp-terminal
+    terminal-id: "1"
+  ports:
+  - name: api
+    port: 8080
+    targetPort: 8080
+  - name: admin
+    port: 8090
+    targetPort: 8090
+  type: ClusterIP
+
+---
+# =========================================
+# WARP TERMINAL 2 (RYAN)
+# =========================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: warp-terminal-2
+  namespace: warp-speed
+  labels:
+    app: warp-terminal
+    terminal-id: "2"
+    user: ryan
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: warp-terminal
+      terminal-id: "2"
+  template:
+    metadata:
+      labels:
+        app: warp-terminal
+        terminal-id: "2"
+        user: ryan
+    spec:
+      containers:
+      - name: terminal
+        image: warp-speed/terminal:latest
+        ports:
+        - containerPort: 8081
+        - containerPort: 8091
+        env:
+        - name: WARP_ENV
+          value: production
+        - name: WARP_USER
+          value: ryan
+        - name: WARP_TERMINAL_ID
+          value: "2"
+        - name: CONSCIOUSNESS_LEVEL
+          value: GAMMA
+        - name: REVENUE_MULTIPLIER
+          value: "2.0"
+        - name: ETD_TARGET_DAILY
+          value: "12000"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: warp-secrets
+              key: postgres-url
+        - name: REDIS_URL
+          value: redis://redis:6379
+        - name: PROMETHEUS_ENDPOINT
+          value: http://prometheus:9090
+        resources:
+          requests:
+            memory: 8Gi
+            cpu: 4000m
+            nvidia.com/gpu: 1
+          limits:
+            memory: 16Gi
+            cpu: 8000m
+            nvidia.com/gpu: 1
+        volumeMounts:
+        - name: warp-data
+          mountPath: /data
+        - name: warp-config
+          mountPath: /config
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8081
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8081
+          initialDelaySeconds: 30
+          periodSeconds: 10
+      volumes:
+      - name: warp-data
+        persistentVolumeClaim:
+          claimName: warp-data-pvc
+      - name: warp-config
+        configMap:
+          name: warp-config
+      nodeSelector:
+        gpu-type: nvidia
+        node-role: compute
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: warp-terminal-2
+  namespace: warp-speed
+  labels:
+    app: warp-terminal
+    terminal-id: "2"
+spec:
+  selector:
+    app: warp-terminal
+    terminal-id: "2"
+  ports:
+  - name: api
+    port: 8081
+    targetPort: 8081
+  - name: admin
+    port: 8091
+    targetPort: 8091
+  type: ClusterIP
+
+---
+# =========================================
+# COLLABORATION ENGINE
+# =========================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: collaboration-engine
+  namespace: warp-speed
+  labels:
+    app: collaboration-engine
+    component: coordination
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: collaboration-engine
+  template:
+    metadata:
+      labels:
+        app: collaboration-engine
+        component: coordination
+    spec:
+      containers:
+      - name: collaboration
+        image: warp-speed/collaboration:latest
+        ports:
+        - containerPort: 8082
+        env:
+        - name: WARP_ENV
+          value: production
+        - name: SYNC_INTERVAL
+          value: "30"
+        - name: COLLABORATION_BONUS
+          value: "1.5"
+        - name: QUANTUM_ENTANGLEMENT
+          value: "true"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: warp-secrets
+              key: postgres-url
+        - name: REDIS_URL
+          value: redis://redis:6379
+        resources:
+          requests:
+            memory: 2Gi
+            cpu: 1000m
+          limits:
+            memory: 4Gi
+            cpu: 2000m
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8082
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8082
+          initialDelaySeconds: 15
+          periodSeconds: 10
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: collaboration-engine
+  namespace: warp-speed
+  labels:
+    app: collaboration-engine
+spec:
+  selector:
+    app: collaboration-engine
+  ports:
+  - port: 8082
+    targetPort: 8082
+  type: ClusterIP
+
+---
+# =========================================
+# REVENUE OPTIMIZER
+# =========================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: revenue-optimizer
+  namespace: warp-speed
+  labels:
+    app: revenue-optimizer
+    component: optimization
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: revenue-optimizer
+  template:
+    metadata:
+      labels:
+        app: revenue-optimizer
+        component: optimization
+    spec:
+      containers:
+      - name: optimizer
+        image: warp-speed/revenue-optimizer:latest
+        ports:
+        - containerPort: 8083
+        env:
+        - name: WARP_ENV
+          value: production
+        - name: OPTIMIZATION_INTERVAL
+          value: "300"
+        - name: ML_OPTIMIZATION
+          value: "true"
+        - name: QUANTUM_ETD
+          value: "true"
+        - name: TARGET_EFFICIENCY
+          value: "0.95"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: warp-secrets
+              key: postgres-url
+        - name: REDIS_URL
+          value: redis://redis:6379
+        resources:
+          requests:
+            memory: 4Gi
+            cpu: 2000m
+          limits:
+            memory: 8Gi
+            cpu: 4000m
+        volumeMounts:
+        - name: revenue-models
+          mountPath: /models
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8083
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8083
+          initialDelaySeconds: 30
+          periodSeconds: 15
+      volumes:
+      - name: revenue-models
+        emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: revenue-optimizer
+  namespace: warp-speed
+  labels:
+    app: revenue-optimizer
+spec:
+  selector:
+    app: revenue-optimizer
+  ports:
+  - port: 8083
+    targetPort: 8083
+  type: ClusterIP
+
+---
+# =========================================
+# MONITORING STACK
+# =========================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: warp-speed
+  labels:
+    app: prometheus
+    component: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  template:
+    metadata:
+      labels:
+        app: prometheus
+        component: monitoring
+    spec:
+      containers:
+      - name: prometheus
+        image: prom/prometheus:v2.47.0
+        ports:
+        - containerPort: 9090
+        args:
+        - '--config.file=/etc/prometheus/prometheus.yml'
+        - '--storage.tsdb.path=/prometheus'
+        - '--storage.tsdb.retention.time=30d'
+        - '--web.enable-lifecycle'
+        resources:
+          requests:
+            memory: 1Gi
+            cpu: 500m
+          limits:
+            memory: 2Gi
+            cpu: 1000m
+        volumeMounts:
+        - name: prometheus-config
+          mountPath: /etc/prometheus
+        - name: prometheus-storage
+          mountPath: /prometheus
+      volumes:
+      - name: prometheus-config
+        configMap:
+          name: prometheus-config
+      - name: prometheus-storage
+        emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: warp-speed
+  labels:
+    app: prometheus
+spec:
+  selector:
+    app: prometheus
+  ports:
+  - port: 9090
+    targetPort: 9090
+  type: ClusterIP
+
+---
+# =========================================
+# INGRESS CONTROLLER
+# =========================================
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: warp-speed-ingress
+  namespace: warp-speed
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - warp-speed.supercompute.ai
+    secretName: warp-speed-tls
+  rules:
+  - host: warp-speed.supercompute.ai
+    http:
+      paths:
+      - path: /terminal1
+        pathType: Prefix
+        backend:
+          service:
+            name: warp-terminal-1
+            port:
+              number: 8080
+      - path: /terminal2
+        pathType: Prefix
+        backend:
+          service:
+            name: warp-terminal-2
+            port:
+              number: 8081
+      - path: /collaboration
+        pathType: Prefix
+        backend:
+          service:
+            name: collaboration-engine
+            port:
+              number: 8082
+      - path: /optimizer
+        pathType: Prefix
+        backend:
+          service:
+            name: revenue-optimizer
+            port:
+              number: 8083
+      - path: /metrics
+        pathType: Prefix
+        backend:
+          service:
+            name: prometheus
+            port:
+              number: 9090
+
+---
+# =========================================
+# HORIZONTAL POD AUTOSCALERS
+# =========================================
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: warp-terminal-1-hpa
+  namespace: warp-speed
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: warp-terminal-1
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  - type: Pods
+    pods:
+      metric:
+        name: etd_generation_rate
+      target:
+        type: AverageValue
+        averageValue: "15000"
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: warp-terminal-2-hpa
+  namespace: warp-speed
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: warp-terminal-2
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  - type: Pods
+    pods:
+      metric:
+        name: etd_generation_rate
+      target:
+        type: AverageValue
+        averageValue: "12000"
+
+---
+# =========================================
+# NETWORK POLICIES
+# =========================================
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: warp-speed-network-policy
+  namespace: warp-speed
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: warp-speed
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: warp-speed
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+    - protocol: TCP
+      port: 80
+    - protocol: UDP
+      port: 53
+
+---
+# =========================================
+# RESOURCE QUOTAS
+# =========================================
+
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: warp-speed-quota
+  namespace: warp-speed
+spec:
+  hard:
+    requests.cpu: "50"
+    requests.memory: 100Gi
+    requests.nvidia.com/gpu: "10"
+    limits.cpu: "100"
+    limits.memory: 200Gi
+    limits.nvidia.com/gpu: "10"
+    persistentvolumeclaims: "10"
+    services: "20"
+    secrets: "10"
+    configmaps: "10"
+
+---
+# =========================================
+# PRIORITY CLASSES
+# =========================================
+
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: warp-speed-high-priority
+value: 1000
+globalDefault: false
+description: "High priority class for Warp-Speed terminals"
+
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: warp-speed-critical
+value: 2000
+globalDefault: false
+description: "Critical priority class for Warp-Speed revenue systems"
+
+# =========================================
+# DEPLOYMENT INSTRUCTIONS
+# =========================================
+
+# Prerequisites:
+# 1. Kubernetes cluster with GPU support (NVIDIA device plugin)
+# 2. Ingress controller (nginx-ingress)
+# 3. Storage class 'fast-ssd'
+# 4. Certificate manager for TLS
+
+# Deploy:
+# kubectl apply -f warp-speed-cluster.yaml
+
+# Scale terminals based on demand:
+# kubectl scale deployment warp-terminal-1 --replicas=5 -n warp-speed
+
+# Monitor:
+# kubectl get pods -n warp-speed -w
+# kubectl logs -f deployment/warp-terminal-1 -n warp-speed
+
+# Access services:
+# kubectl port-forward service/warp-terminal-1 8080:8080 -n warp-speed
+# kubectl port-forward service/prometheus 9090:9090 -n warp-speed
+
+# Revenue Targets:
+# - High Availability: 99.9% uptime
+# - Auto-scaling: 2-10 replicas per terminal
+# - Resource Efficiency: Optimal GPU utilization
+# - Revenue Generation: $40K+/day combined target

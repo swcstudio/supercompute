@@ -1,0 +1,16 @@
+{
+  "name": "AI-Powered Development Workflows",
+  "description": "Enable Claude Code AI for automated PR creation, code review, and task automation",
+  "iconName": "robot",
+  "categories": [
+    "automation",
+    "code-review", 
+    "continuous-integration",
+    "TypeScript",
+    "JavaScript"
+  ],
+  "filePatterns": [
+    "package.json",
+    "^.github/workflows/.*\\.yml$"
+  ]
+}

@@ -1,0 +1,346 @@
+name: AI Issue Decomposition
+
+on:
+  issues:
+    types: [opened, labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to decompose'
+        required: true
+        type: number
+      decomposition_depth:
+        description: 'How deeply to decompose tasks'
+        required: false
+        type: choice
+        options:
+          - shallow
+          - standard
+          - deep
+        default: standard
+
+env:
+  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  decompose-issue:
+    if: |
+      github.event_name == 'workflow_dispatch' || 
+      contains(github.event.label.name, 'ai-decompose') ||
+      contains(github.event.issue.labels.*.name, 'epic')
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Setup Environment
+        run: |
+          npm install -g @anthropic-ai/sdk mermaid-cli
+          
+      - name: Get Issue Details
+        id: issue
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            ISSUE_NUMBER=${{ github.event.inputs.issue_number }}
+            DEPTH=${{ github.event.inputs.decomposition_depth }}
+          else
+            ISSUE_NUMBER=${{ github.event.issue.number }}
+            DEPTH="standard"
+          fi
+          
+          echo "issue_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
+          echo "depth=$DEPTH" >> $GITHUB_OUTPUT
+          
+          # Get issue details
+          gh issue view $ISSUE_NUMBER --json title,body,labels,assignees > issue-details.json
+          
+          # Get repository context
+          gh repo view --json description,topics,languages > repo-context.json
+          
+      - name: AI Decomposition
+        run: |
+          cat > decompose-issue.js << 'EOF'
+          const { Anthropic } = require('@anthropic-ai/sdk');
+          const fs = require('fs');
+          
+          const anthropic = new Anthropic({
+            apiKey: process.env.ANTHROPIC_API_KEY,
+          });
+          
+          async function decomposeIssue() {
+            const issueDetails = JSON.parse(fs.readFileSync('issue-details.json', 'utf8'));
+            const repoContext = JSON.parse(fs.readFileSync('repo-context.json', 'utf8'));
+            const depth = process.env.DECOMPOSITION_DEPTH || 'standard';
+            
+            const depthPrompts = {
+              shallow: 'Break down into 3-5 high-level tasks',
+              standard: 'Break down into 5-10 detailed tasks with clear acceptance criteria',
+              deep: 'Break down into comprehensive subtasks with technical specifications, dependencies, and implementation details'
+            };
+            
+            const prompt = `
+          You are Claude Code, an expert at breaking down complex software engineering tasks.
+          
+          Repository: ${repoContext.description}
+          Languages: ${Object.keys(repoContext.languages || {}).join(', ')}
+          
+          Issue Title: ${issueDetails.title}
+          Issue Description: ${issueDetails.body || 'No description provided'}
+          Labels: ${issueDetails.labels.map(l => l.name).join(', ')}
+          
+          Please decompose this issue following these guidelines:
+          ${depthPrompts[depth]}
+          
+          For each subtask, provide:
+          1. Clear title
+          2. Detailed description
+          3. Acceptance criteria
+          4. Estimated complexity (XS, S, M, L, XL)
+          5. Dependencies on other subtasks (if any)
+          6. Technical considerations
+          7. Testing requirements
+          
+          Also provide:
+          - A dependency graph showing task relationships
+          - Suggested implementation order
+          - Risk assessment for the overall issue
+          - Estimated total effort
+          
+          Format the output as:
+          SUBTASKS:
+          [Array of subtask objects in JSON format]
+          
+          DEPENDENCY_GRAPH:
+          [Mermaid diagram showing dependencies]
+          
+          IMPLEMENTATION_PLAN:
+          [Ordered list of tasks with rationale]
+          
+          RISK_ASSESSMENT:
+          [Key risks and mitigation strategies]
+          `;
+            
+            const response = await anthropic.messages.create({
+              model: 'claude-3-opus-20240229',
+              max_tokens: 6000,
+              messages: [{ role: 'user', content: prompt }],
+            });
+            
+            return response.content[0].text;
+          }
+          
+          decomposeIssue()
+            .then(decomposition => {
+              fs.writeFileSync('decomposition.txt', decomposition);
+              
+              // Parse subtasks
+              const subtasksMatch = decomposition.match(/SUBTASKS:\n([\s\S]*?)DEPENDENCY_GRAPH:/);
+              if (subtasksMatch) {
+                try {
+                  const subtasks = JSON.parse(subtasksMatch[1].trim());
+                  fs.writeFileSync('subtasks.json', JSON.stringify(subtasks, null, 2));
+                } catch (e) {
+                  console.error('Failed to parse subtasks:', e);
+                }
+              }
+              
+              // Extract dependency graph
+              const graphMatch = decomposition.match(/DEPENDENCY_GRAPH:\n```mermaid\n([\s\S]*?)```/);
+              if (graphMatch) {
+                fs.writeFileSync('dependencies.mmd', graphMatch[1].trim());
+              }
+            })
+            .catch(console.error);
+          EOF
+          
+          DECOMPOSITION_DEPTH=${{ steps.issue.outputs.depth }} node decompose-issue.js
+          
+      - name: Generate Visualizations
+        continue-on-error: true
+        run: |
+          # Generate dependency graph image
+          if [ -f "dependencies.mmd" ]; then
+            npx mmdc -i dependencies.mmd -o dependency-graph.png -t dark -b transparent
+          fi
+          
+      - name: Create Subtask Issues
+        id: create_subtasks
+        run: |
+          cat > create-subtasks.js << 'EOF'
+          const fs = require('fs');
+          const { execSync } = require('child_process');
+          
+          const parentIssue = process.env.PARENT_ISSUE;
+          const subtasks = JSON.parse(fs.readFileSync('subtasks.json', 'utf8'));
+          
+          const createdIssues = [];
+          const labelMap = {
+            'XS': 'size/xs',
+            'S': 'size/s',
+            'M': 'size/m',
+            'L': 'size/l',
+            'XL': 'size/xl'
+          };
+          
+          subtasks.forEach((subtask, index) => {
+            const body = `
+          ## 📋 Subtask of #${parentIssue}
+          
+          ${subtask.description}
+          
+          ### Acceptance Criteria
+          ${subtask.acceptanceCriteria ? subtask.acceptanceCriteria.map(ac => `- [ ] ${ac}`).join('\n') : 'To be defined'}
+          
+          ### Technical Considerations
+          ${subtask.technicalConsiderations || 'None specified'}
+          
+          ### Testing Requirements
+          ${subtask.testingRequirements || 'Standard testing procedures'}
+          
+          ### Dependencies
+          ${subtask.dependencies ? subtask.dependencies.join(', ') : 'None'}
+          
+          ---
+          *This issue was automatically generated by Claude Code AI decomposition*
+          `;
+            
+            try {
+              // Create issue
+              const result = execSync(`gh issue create \
+                --title "${subtask.title}" \
+                --body "${body}" \
+                --label "ai-generated" \
+                --label "subtask" \
+                --label "${labelMap[subtask.complexity] || 'size/m'}" \
+                --project "AI Tasks"`, { encoding: 'utf8' });
+              
+              const issueUrl = result.trim();
+              const issueNumber = issueUrl.match(/\/(\d+)$/)?.[1];
+              
+              createdIssues.push({
+                number: issueNumber,
+                url: issueUrl,
+                title: subtask.title
+              });
+              
+              console.log(`Created issue #${issueNumber}: ${subtask.title}`);
+            } catch (e) {
+              console.error(`Failed to create subtask: ${subtask.title}`, e.message);
+            }
+          });
+          
+          fs.writeFileSync('created-issues.json', JSON.stringify(createdIssues, null, 2));
+          EOF
+          
+          PARENT_ISSUE=${{ steps.issue.outputs.issue_number }} node create-subtasks.js
+          
+      - name: Update Parent Issue
+        run: |
+          ISSUE_NUMBER=${{ steps.issue.outputs.issue_number }}
+          
+          # Read decomposition results
+          DECOMPOSITION=$(cat decomposition.txt)
+          CREATED_ISSUES=$(cat created-issues.json 2>/dev/null || echo '[]')
+          
+          # Create issue comment with decomposition
+          COMMENT_BODY=$(cat << 'EOF'
+          ## 🤖 AI Issue Decomposition Complete
+          
+          I've analyzed this issue and broken it down into manageable subtasks.
+          
+          ### 📊 Decomposition Summary
+          
+          <details>
+          <summary>View full analysis</summary>
+          
+          $DECOMPOSITION
+          
+          </details>
+          
+          ### 📝 Created Subtasks
+          
+          EOF
+          )
+          
+          # Add created issues to comment
+          echo "$CREATED_ISSUES" | jq -r '.[] | "- [ ] #\(.number) - \(.title)"' >> comment-body.md || echo "No subtasks created"
+          
+          # Add dependency graph if exists
+          if [ -f "dependency-graph.png" ]; then
+            echo -e "\n### 🔗 Task Dependencies\n" >> comment-body.md
+            echo "![Dependency Graph](dependency-graph.png)" >> comment-body.md
+          fi
+          
+          # Add implementation plan
+          if grep -q "IMPLEMENTATION_PLAN:" decomposition.txt; then
+            echo -e "\n### 📋 Suggested Implementation Order\n" >> comment-body.md
+            sed -n '/IMPLEMENTATION_PLAN:/,/RISK_ASSESSMENT:/p' decomposition.txt | \
+              sed '1d;$d' >> comment-body.md
+          fi
+          
+          # Post comment
+          gh issue comment $ISSUE_NUMBER --body-file comment-body.md
+          
+          # Add labels to parent issue
+          gh issue edit $ISSUE_NUMBER --add-label "has-subtasks" --add-label "ai-decomposed"
+          
+      - name: Create Task Board
+        continue-on-error: true
+        run: |
+          # Create a project board for the decomposed tasks
+          PROJECT_NAME="AI: Issue #${{ steps.issue.outputs.issue_number }}"
+          
+          # Create project (if GitHub Projects is available)
+          gh project create --title "$PROJECT_NAME" --body "AI-decomposed tasks for issue #${{ steps.issue.outputs.issue_number }}" || true
+          
+      - name: Trigger Sequential Execution
+        if: contains(github.event.issue.labels.*.name, 'ai-auto-implement')
+        run: |
+          # If auto-implementation is requested, trigger the sequential task workflow
+          SUBTASKS=$(cat subtasks.json)
+          
+          # Transform subtasks for sequential execution
+          TASK_LIST=$(echo "$SUBTASKS" | jq '[.[] | {
+            id: .title | gsub("[^a-zA-Z0-9]"; "-") | ascii_downcase,
+            description: .title,
+            dependencies: .dependencies,
+            context: {
+              acceptanceCriteria: .acceptanceCriteria,
+              complexity: .complexity
+            }
+          }]')
+          
+          # Trigger sequential task workflow
+          gh workflow run ai-sequential-tasks.yml \
+            -f task_list="$TASK_LIST" \
+            -f strategy="dependency-aware"
+            
+      - name: Summary Report
+        run: |
+          # Create summary for GitHub Actions
+          echo "# Issue Decomposition Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Parent Issue:** #${{ steps.issue.outputs.issue_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Decomposition Depth:** ${{ steps.issue.outputs.depth }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ -f "created-issues.json" ]; then
+            echo "## Created Subtasks" >> $GITHUB_STEP_SUMMARY
+            echo "$CREATED_ISSUES" | jq -r '.[] | "- #\(.number) - [\(.title)](\(.url))"' >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ -f "dependency-graph.png" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "## Dependency Graph" >> $GITHUB_STEP_SUMMARY
+            echo "See dependency-graph.png in artifacts" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: decomposition-${{ steps.issue.outputs.issue_number }}
+          path: |
+            decomposition.txt
+            subtasks.json
+            created-issues.json
+            dependency-graph.png
+            dependencies.mmd

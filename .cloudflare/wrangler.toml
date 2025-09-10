@@ -1,0 +1,345 @@
+# Katalyst Core - Cloudflare Edge AI & Serverless Functions
+# Optimized for Vercel deployment with AI-first edge computing
+
+name = "katalyst-core"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat", "experimental_wasm_modules", "streams_enable_constructors"]
+
+# Account settings
+account_id = "${CLOUDFLARE_ACCOUNT_ID}"
+workers_dev = true
+
+# ============================================================================
+# AI Services - Primary Focus for Core
+# ============================================================================
+
+[ai]
+binding = "AI"
+
+# AI Models Configuration
+[[ai_models]]
+binding = "AI_CHAT"
+model = "@cf/meta/llama-3.1-70b-instruct"
+
+[[ai_models]]
+binding = "AI_CODE"
+model = "@cf/deepseek/deepseek-coder-6.7b-instruct"
+
+[[ai_models]]
+binding = "AI_VISION"
+model = "@cf/llava-hf/llava-1.5-7b-hf"
+
+[[ai_models]]
+binding = "AI_EMBEDDINGS"
+model = "@cf/baai/bge-base-en-v1.5"
+
+[[ai_models]]
+binding = "AI_TRANSLATION"
+model = "@cf/meta/m2m100-1.2b"
+
+[[ai_models]]
+binding = "AI_SPEECH"
+model = "@cf/openai/whisper"
+
+# AI Gateway for caching and rate limiting
+[[ai_gateway]]
+binding = "AI_GATEWAY"
+gateway_id = "katalyst-core-ai-gateway"
+
+# ============================================================================
+# Edge Functions & Middleware (Vercel Integration)
+# ============================================================================
+
+# Service bindings to katalyst-server on Fly.io
+[[services]]
+binding = "BACKEND_API"
+service = "katalyst-server-api"
+environment = "production"
+
+[[services]]
+binding = "DATA_SERVICE"
+service = "katalyst-server-data"
+environment = "production"
+
+# ============================================================================
+# Vectorize - For AI Context and RAG
+# ============================================================================
+
+[[vectorize]]
+binding = "VECTOR_CONTEXT"
+index_name = "katalyst-core-context"
+dimensions = 1536
+metric = "cosine"
+preset = "openai-text-embedding-ada-002"
+
+[[vectorize]]
+binding = "VECTOR_CODE"
+index_name = "katalyst-core-code"
+dimensions = 768
+metric = "euclidean"
+preset = "@cf/baai/bge-base-en-v1.5"
+
+# ============================================================================
+# KV Namespaces - Edge Caching & State
+# ============================================================================
+
+# AI response caching
+[[kv_namespaces]]
+binding = "KV_AI_CACHE"
+id = "your-ai-cache-kv-id"
+preview_id = "your-ai-cache-preview-kv-id"
+
+# User session state for serverless
+[[kv_namespaces]]
+binding = "KV_EDGE_SESSION"
+id = "your-edge-session-kv-id"
+preview_id = "your-edge-session-preview-kv-id"
+
+# Feature flags and A/B testing
+[[kv_namespaces]]
+binding = "KV_FEATURES"
+id = "your-features-kv-id"
+preview_id = "your-features-preview-kv-id"
+
+# ============================================================================
+# R2 Storage - Static Assets & Models
+# ============================================================================
+
+# User uploads and media
+[[r2_buckets]]
+binding = "R2_UPLOADS"
+bucket_name = "katalyst-core-uploads"
+preview_bucket_name = "katalyst-core-uploads-preview"
+
+# Fine-tuned models and weights
+[[r2_buckets]]
+binding = "R2_MODELS"
+bucket_name = "katalyst-core-models"
+preview_bucket_name = "katalyst-core-models-preview"
+
+# Generated content cache
+[[r2_buckets]]
+binding = "R2_GENERATED"
+bucket_name = "katalyst-core-generated"
+preview_bucket_name = "katalyst-core-generated-preview"
+
+# ============================================================================
+# Durable Objects - Stateful AI Sessions
+# ============================================================================
+
+# AI conversation state
+[[durable_objects.bindings]]
+name = "AI_CONVERSATION"
+class_name = "AIConversation"
+script_name = "katalyst-core"
+
+# Collaborative editing sessions
+[[durable_objects.bindings]]
+name = "COLLAB_SESSION"
+class_name = "CollabSession"
+script_name = "katalyst-core"
+
+# Real-time AI streaming
+[[durable_objects.bindings]]
+name = "AI_STREAM"
+class_name = "AIStreamHandler"
+script_name = "katalyst-core"
+
+# ============================================================================
+# Queues - Async AI Processing
+# ============================================================================
+
+# AI generation tasks
+[[queues.producers]]
+binding = "QUEUE_AI_TASKS"
+queue = "katalyst-core-ai-tasks"
+
+# Image/video processing
+[[queues.producers]]
+binding = "QUEUE_MEDIA"
+queue = "katalyst-core-media"
+
+# Background analysis
+[[queues.producers]]
+binding = "QUEUE_ANALYSIS"
+queue = "katalyst-core-analysis"
+
+[[queues.consumers]]
+queue = "katalyst-core-ai-tasks"
+max_batch_size = 5
+max_batch_timeout = 30
+max_retries = 3
+
+[[queues.consumers]]
+queue = "katalyst-core-media"
+max_batch_size = 2
+max_batch_timeout = 60
+max_retries = 2
+
+# ============================================================================
+# D1 Databases - Lightweight Edge Data
+# ============================================================================
+
+# User preferences and settings
+[[d1_databases]]
+binding = "DB_USER_PREFS"
+database_name = "katalyst-core-preferences"
+database_id = "your-prefs-db-id"
+preview_database_id = "your-prefs-preview-db-id"
+
+# AI conversation history
+[[d1_databases]]
+binding = "DB_CONVERSATIONS"
+database_name = "katalyst-core-conversations"
+database_id = "your-conversations-db-id"
+preview_database_id = "your-conversations-preview-db-id"
+
+# ============================================================================
+# Browser Rendering - For AI Vision
+# ============================================================================
+
+[[browser]]
+binding = "BROWSER"
+
+# ============================================================================
+# Analytics - AI Usage Tracking
+# ============================================================================
+
+[[analytics_engine_datasets]]
+binding = "ANALYTICS_AI"
+dataset = "katalyst_core_ai_usage"
+
+# ============================================================================
+# WASM Modules - High Performance Computing
+# ============================================================================
+
+[[wasm_modules]]
+source = "./wasm/ai_processor.wasm"
+binding = "WASM_AI_PROCESSOR"
+
+[[wasm_modules]]
+source = "./wasm/tokenizer.wasm"
+binding = "WASM_TOKENIZER"
+
+# ============================================================================
+# Email - AI Notifications
+# ============================================================================
+
+[[send_email]]
+binding = "EMAIL"
+destination_address = "ai-notifications@katalyst.io"
+
+# ============================================================================
+# Environment Configurations
+# ============================================================================
+
+[env.production]
+name = "katalyst-core-prod"
+routes = [
+  { pattern = "ai.katalyst.io/*", zone_name = "katalyst.io" },
+  { pattern = "edge.katalyst.io/*", zone_name = "katalyst.io" }
+]
+vars = { 
+  ENVIRONMENT = "production",
+  VERCEL_URL = "https://katalyst.vercel.app",
+  FLY_BACKEND_URL = "https://api.katalyst.fly.dev",
+  AI_RATE_LIMIT = "100",
+  CACHE_TTL = "3600"
+}
+
+[env.staging]
+name = "katalyst-core-staging"
+routes = [
+  { pattern = "staging-ai.katalyst.io/*", zone_name = "katalyst.io" }
+]
+vars = { 
+  ENVIRONMENT = "staging",
+  VERCEL_URL = "https://katalyst-staging.vercel.app",
+  FLY_BACKEND_URL = "https://staging-api.katalyst.fly.dev",
+  AI_RATE_LIMIT = "50",
+  CACHE_TTL = "300"
+}
+
+[env.development]
+name = "katalyst-core-dev"
+vars = { 
+  ENVIRONMENT = "development",
+  VERCEL_URL = "http://localhost:3000",
+  FLY_BACKEND_URL = "http://localhost:4000",
+  AI_RATE_LIMIT = "10",
+  CACHE_TTL = "0"
+}
+
+# ============================================================================
+# Build Configuration
+# ============================================================================
+
+[build]
+command = "npm run build:edge"
+cwd = ".cloudflare"
+watch_paths = ["src/**/*.ts", "wasm/**/*.wasm"]
+
+[build.upload]
+format = "modules"
+main = "./dist/index.mjs"
+
+[[build.upload.rules]]
+type = "ESModule"
+globs = ["**/*.js", "**/*.mjs"]
+
+[[build.upload.rules]]
+type = "CompiledWasm"
+globs = ["**/*.wasm"]
+
+# ============================================================================
+# Observability
+# ============================================================================
+
+[observability]
+enabled = true
+head_sampling_rate = 0.1
+
+[[tail_consumers]]
+service = "katalyst-core-logger"
+
+# ============================================================================
+# Performance Limits
+# ============================================================================
+
+[limits]
+cpu_ms = 100  # More CPU for AI operations
+memory_mb = 256  # More memory for models
+
+[placement]
+mode = "smart"
+
+# ============================================================================
+# Triggers - AI Model Updates
+# ============================================================================
+
+[triggers]
+crons = [
+  "0 */6 * * *",   # Update AI model cache every 6 hours
+  "*/30 * * * *",  # Cleanup old conversations every 30 minutes
+  "0 0 * * *"      # Daily usage analytics
+]
+
+# ============================================================================
+# Vercel Edge Config Integration
+# ============================================================================
+
+[env.production.vercel]
+edge_config_id = "your-vercel-edge-config-id"
+edge_config_token = "${VERCEL_EDGE_CONFIG_TOKEN}"
+
+# ============================================================================
+# Development Settings
+# ============================================================================
+
+[miniflare]
+kv_persist = "./.cloudflare/.mf/kv"
+d1_persist = "./.cloudflare/.mf/d1"
+r2_persist = "./.cloudflare/.mf/r2"
+cache_persist = "./.cloudflare/.mf/cache"
+durable_objects_persist = "./.cloudflare/.mf/do"

@@ -1,0 +1,275 @@
+name: AI Task Analysis
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to analyze'
+        required: true
+        type: number
+      analysis_type:
+        description: 'Type of analysis'
+        required: true
+        default: 'comprehensive'
+        type: choice
+        options:
+          - comprehensive
+          - technical
+          - complexity
+          - dependencies
+          - implementation
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  analyze-task:
+    name: AI Task Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup analysis environment
+        run: |
+          npm install openai @octokit/rest marked mermaid-cli yaml
+
+      - name: Fetch issue context
+        id: context
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = ${{ github.event.inputs.issue_number }};
+            
+            // Get issue details
+            const { data: issue } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber
+            });
+            
+            // Get related PRs
+            const { data: timeline } = await github.rest.issues.listEventsForTimeline({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber
+            });
+            
+            const relatedPRs = timeline
+              .filter(event => event.event === 'cross-referenced' && event.source?.issue?.pull_request)
+              .map(event => event.source.issue.number);
+            
+            // Get repository structure
+            const { data: tree } = await github.rest.git.getTree({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tree_sha: 'HEAD',
+              recursive: true
+            }).catch(() => ({ data: { tree: [] } }));
+            
+            const fileStructure = tree.tree
+              .filter(item => item.type === 'blob')
+              .map(item => item.path);
+            
+            core.setOutput('issue', JSON.stringify(issue));
+            core.setOutput('related_prs', JSON.stringify(relatedPRs));
+            core.setOutput('file_structure', JSON.stringify(fileStructure));
+
+      - name: Perform AI analysis
+        id: analysis
+        uses: actions/github-script@v7
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        with:
+          script: |
+            const OpenAI = require('openai');
+            const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+            
+            const issue = JSON.parse('${{ steps.context.outputs.issue }}');
+            const fileStructure = JSON.parse('${{ steps.context.outputs.file_structure }}');
+            const analysisType = '${{ github.event.inputs.analysis_type }}';
+            
+            const systemPrompts = {
+              comprehensive: `You are an expert software architect performing comprehensive task analysis.
+                             Analyze all aspects including technical complexity, implementation approach,
+                             testing requirements, and potential risks.`,
+              
+              technical: `You are a senior engineer analyzing technical implementation details.
+                         Focus on code architecture, design patterns, technology choices,
+                         and implementation specifics.`,
+              
+              complexity: `You are a project manager analyzing task complexity and effort estimation.
+                          Focus on breaking down complexity, identifying challenges,
+                          and providing accurate time/effort estimates.`,
+              
+              dependencies: `You are a systems analyst identifying task dependencies and relationships.
+                            Map out all dependencies, both technical and logical,
+                            and suggest optimal execution order.`,
+              
+              implementation: `You are an AI coding assistant planning implementation strategy.
+                              Provide specific code structure, file modifications,
+                              and step-by-step implementation plan.`
+            };
+            
+            const analysis = await openai.chat.completions.create({
+              model: "gpt-4",
+              messages: [{
+                role: "system",
+                content: systemPrompts[analysisType]
+              }, {
+                role: "user",
+                content: `Analyze this GitHub issue and provide detailed ${analysisType} analysis:
+                
+                Issue Title: ${issue.title}
+                Issue Body: ${issue.body}
+                Labels: ${issue.labels.map(l => l.name).join(', ')}
+                
+                Repository Structure Summary:
+                - Total files: ${fileStructure.length}
+                - Key directories: ${[...new Set(fileStructure.map(f => f.split('/')[0]))].join(', ')}
+                
+                Provide analysis in markdown format with:
+                1. Executive Summary
+                2. Detailed Analysis
+                3. Recommendations
+                4. Implementation Plan (if applicable)
+                5. Risk Assessment
+                6. Success Metrics`
+              }],
+              temperature: 0.3,
+              max_tokens: 4000
+            });
+            
+            return analysis.choices[0].message.content;
+
+      - name: Generate visual diagrams
+        id: diagrams
+        run: |
+          cat > architecture.mmd << 'EOF'
+          graph TD
+            A[Issue Analysis] --> B[Task Decomposition]
+            B --> C[Subtask 1]
+            B --> D[Subtask 2]
+            B --> E[Subtask 3]
+            C --> F[Implementation]
+            D --> F
+            E --> F
+            F --> G[Testing]
+            G --> H[Deployment]
+          EOF
+          
+          npx mmdc -i architecture.mmd -o architecture.png
+
+      - name: Post analysis results
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = ${{ github.event.inputs.issue_number }};
+            const analysisType = '${{ github.event.inputs.analysis_type }}';
+            const analysis = `${{ steps.analysis.outputs.result }}`;
+            
+            // Create detailed comment with analysis
+            const comment = `# 🤖 AI ${analysisType.charAt(0).toUpperCase() + analysisType.slice(1)} Analysis
+            
+            ${analysis}
+            
+            ## 📊 Analysis Metadata
+            - Analysis Type: **${analysisType}**
+            - Performed At: **${new Date().toISOString()}**
+            - Model: **GPT-4**
+            - Confidence Level: **High**
+            
+            ## 🔄 Next Steps
+            1. Review the analysis above
+            2. Use \`/ai-execute implement\` to start implementation
+            3. Or use \`/ai-execute analyze [type]\` for different analysis
+            
+            ---
+            <details>
+            <summary>🛠 Available Commands</summary>
+            
+            - \`/ai-execute analyze comprehensive\` - Full analysis
+            - \`/ai-execute analyze technical\` - Technical deep dive
+            - \`/ai-execute analyze complexity\` - Complexity assessment
+            - \`/ai-execute analyze dependencies\` - Dependency mapping
+            - \`/ai-execute analyze implementation\` - Implementation strategy
+            - \`/ai-execute implement\` - Start AI implementation
+            - \`/ai-execute review\` - AI code review
+            </details>`;
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: comment
+            });
+            
+            // Update issue labels based on analysis
+            const labels = ['ai-analyzed', `analysis:${analysisType}`];
+            
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              labels
+            });
+
+  generate-implementation-plan:
+    name: Generate Implementation Plan
+    runs-on: ubuntu-latest
+    needs: analyze-task
+    if: github.event.inputs.analysis_type == 'implementation'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create implementation checklist
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = ${{ github.event.inputs.issue_number }};
+            
+            // Create implementation checklist as a new comment
+            const checklist = `## 📋 Implementation Checklist
+            
+            ### Pre-Implementation
+            - [ ] Review AI analysis
+            - [ ] Validate technical approach
+            - [ ] Set up development environment
+            - [ ] Create feature branch
+            
+            ### Implementation
+            - [ ] Implement core functionality
+            - [ ] Add unit tests
+            - [ ] Add integration tests
+            - [ ] Update documentation
+            - [ ] Add inline code comments
+            
+            ### Testing
+            - [ ] Run unit tests locally
+            - [ ] Run integration tests
+            - [ ] Manual testing
+            - [ ] Cross-browser testing (if applicable)
+            - [ ] Performance testing
+            
+            ### Code Quality
+            - [ ] Run linter
+            - [ ] Run type checker
+            - [ ] Code review self-check
+            - [ ] Security scan
+            
+            ### Finalization
+            - [ ] Update CHANGELOG
+            - [ ] Create pull request
+            - [ ] Address review feedback
+            - [ ] Merge to main branch
+            
+            ---
+            Use \`/ai-execute implement\` to start automated implementation with AI assistance.`;
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: checklist
+            });

@@ -1,0 +1,142 @@
+# FreeBSD Terminal Container with Native Optimizations
+# Note: This requires FreeBSD Docker support or bhyve/jail conversion
+
+FROM freebsd:14.3-RELEASE
+
+LABEL maintainer="Warp-Speed Omega Founders"
+LABEL consciousness="OMEGA"
+LABEL version="1.0.0-founders"
+
+# Install build dependencies
+RUN pkg update && pkg install -y \
+    gcc13 \
+    cmake \
+    ninja \
+    llvm16 \
+    openssl \
+    libwebsockets \
+    jansson \
+    egl-wayland \
+    mesa-dri \
+    mesa-libs \
+    gpu-firmware-amd-kmod \
+    drm-kmod \
+    cuda-toolkit \
+    julia \
+    python39 \
+    node18 \
+    npm-node18 \
+    git \
+    tmux \
+    htop \
+    nmap
+
+# Create warp-speed user
+RUN pw useradd -n warpspeed -u 1000 -d /home/warpspeed -m -s /bin/sh && \
+    echo 'warpspeed:omega2024' | chpasswd
+
+# Set kernel parameters for huge pages and network
+RUN sysctl -w vm.pmap.pti=0 && \
+    sysctl -w kern.ipc.shmmax=137438953472 && \
+    sysctl -w kern.ipc.shmall=33554432 && \
+    sysctl -w vm.max_wired=137438953472 && \
+    sysctl -w net.inet.tcp.sendspace=2097152 && \
+    sysctl -w net.inet.tcp.recvspace=2097152 && \
+    sysctl -w kern.ipc.maxsockbuf=16777216 && \
+    sysctl -w net.inet.tcp.sendbuf_max=16777216 && \
+    sysctl -w net.inet.tcp.recvbuf_max=16777216
+
+# Copy source code
+WORKDIR /opt/warp-speed
+COPY --chown=warpspeed:warpspeed . .
+
+# Build native terminal
+WORKDIR /opt/warp-speed/src/terminal
+RUN cc -O3 -march=native -mtune=native \
+    -I/usr/local/include \
+    -L/usr/local/lib \
+    -o warp-terminal \
+    freebsd-native-terminal.c \
+    -lwebsockets -ljansson -lEGL -lGL -lpthread -lm \
+    -DOMEGA_CONSCIOUSNESS=1 \
+    -DGPU_ACCELERATED=1
+
+# Build Julia components
+WORKDIR /opt/warp-speed/src/collaboration
+RUN julia --project=. -e 'using Pkg; Pkg.instantiate()'
+
+# Build CUDA components (if GPU available)
+WORKDIR /opt/warp-speed/src/gpu
+RUN if [ -f /usr/local/cuda/bin/nvcc ]; then \
+    nvcc -O3 -arch=sm_89 \
+        -gencode arch=compute_89,code=sm_89 \
+        -o visual-engine \
+        l40s-visual-engine.cu \
+        -lcudart -lcublas -lcudnn -lnvrtc \
+        -DOMEGA_MODE=1; \
+    fi
+
+# Build frontend
+WORKDIR /opt/warp-speed/frontend
+RUN npm ci && npm run build:production
+
+# Setup startup script
+WORKDIR /opt/warp-speed
+RUN cat > start.sh << 'EOF'
+#!/bin/sh
+set -e
+
+# Terminal identifier from environment
+TERMINAL_ID=${TERMINAL_ID:-"unknown"}
+TERMINAL_NAME=${TERMINAL_NAME:-"Warp Terminal"}
+GPU_ALLOCATION=${GPU_ALLOCATION:-0.5}
+COLLABORATION_ENDPOINT=${COLLABORATION_ENDPOINT:-""}
+
+# Load kernel modules for GPU
+if [ -e /dev/dri ]; then
+    kldload drm || true
+    kldload amdgpu || true
+fi
+
+# Configure huge pages
+if [ -d /sys/kernel/mm/hugepages ]; then
+    echo 16384 > /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
+fi
+
+# Start collaboration mesh if configured
+if [ -n "$COLLABORATION_ENDPOINT" ]; then
+    cd /opt/warp-speed/src/collaboration
+    julia --project=. terminal-mesh.jl &
+    MESH_PID=$!
+fi
+
+# Start GPU visual engine if available
+if [ -f /opt/warp-speed/src/gpu/visual-engine ] && [ -e /dev/nvidia0 ]; then
+    cd /opt/warp-speed/src/gpu
+    ./visual-engine --gpu-allocation=$GPU_ALLOCATION &
+    GPU_PID=$!
+fi
+
+# Start native terminal
+cd /opt/warp-speed/src/terminal
+exec ./warp-terminal \
+    --terminal-id="$TERMINAL_ID" \
+    --terminal-name="$TERMINAL_NAME" \
+    --consciousness=OMEGA \
+    --gpu-enabled \
+    --collaboration="$COLLABORATION_ENDPOINT"
+EOF
+RUN chmod +x start.sh
+
+# Expose ports
+EXPOSE 8080 8443 9090 50051
+
+# Set user
+USER warpspeed
+
+# Health check
+HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+# Entry point
+ENTRYPOINT ["/opt/warp-speed/start.sh"]

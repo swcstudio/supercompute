@@ -1,0 +1,415 @@
+name: AI Sequential Task Automation
+
+on:
+  workflow_dispatch:
+    inputs:
+      task_list:
+        description: 'JSON array of tasks for sequential execution'
+        required: true
+        type: string
+      strategy:
+        description: 'Execution strategy'
+        required: false
+        type: choice
+        options:
+          - sequential
+          - parallel-safe
+          - dependency-aware
+        default: sequential
+  repository_dispatch:
+    types: [ai-task-sequence]
+
+env:
+  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  task-orchestrator:
+    runs-on: ubuntu-latest
+    outputs:
+      tasks: ${{ steps.parse.outputs.tasks }}
+      strategy: ${{ steps.parse.outputs.strategy }}
+    
+    steps:
+      - name: Parse Task Input
+        id: parse
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "tasks=${{ github.event.inputs.task_list }}" >> $GITHUB_OUTPUT
+            echo "strategy=${{ github.event.inputs.strategy }}" >> $GITHUB_OUTPUT
+          else
+            echo "tasks=${{ github.event.client_payload.tasks }}" >> $GITHUB_OUTPUT
+            echo "strategy=${{ github.event.client_payload.strategy || 'sequential' }}" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Validate Tasks
+        run: |
+          echo '${{ steps.parse.outputs.tasks }}' | jq '.' || {
+            echo "Invalid JSON task list"
+            exit 1
+          }
+          
+  ai-task-executor:
+    needs: task-orchestrator
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        task: ${{ fromJson(needs.task-orchestrator.outputs.tasks) }}
+      max-parallel: ${{ needs.task-orchestrator.outputs.strategy == 'sequential' && 1 || 4 }}
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Setup Task Environment
+        run: |
+          npm install -g @anthropic-ai/sdk
+          
+          # Create unique branch for this task
+          TASK_ID=$(echo "${{ matrix.task.id || github.run_id }}-${{ strategy.job-index }}" | tr '[:upper:]' '[:lower:]')
+          echo "TASK_ID=$TASK_ID" >> $GITHUB_ENV
+          echo "BRANCH_NAME=ai-task-$TASK_ID" >> $GITHUB_ENV
+          
+          git config --global user.name "Claude Code[bot]"
+          git config --global user.email "claude-code[bot]@users.noreply.github.com"
+          
+      - name: Execute AI Task
+        id: execute
+        run: |
+          cat > execute-task.js << 'EOF'
+          const { Anthropic } = require('@anthropic-ai/sdk');
+          const fs = require('fs');
+          const { execSync } = require('child_process');
+          
+          const anthropic = new Anthropic({
+            apiKey: process.env.ANTHROPIC_API_KEY,
+          });
+          
+          async function executeTask(task) {
+            const systemPrompt = `
+          You are Claude Code, an autonomous software engineering AI.
+          You are executing a specific task as part of a larger sequence.
+          
+          Guidelines:
+          1. Focus only on the given task
+          2. Ensure your changes are isolated and don't break existing functionality
+          3. Follow existing code patterns and conventions
+          4. Write appropriate tests for your changes
+          5. Document your changes clearly
+          6. Consider dependencies and impacts on other parts of the system
+          `;
+            
+            const taskPrompt = `
+          Task ID: ${task.id}
+          Task Description: ${task.description}
+          Dependencies: ${JSON.stringify(task.dependencies || [])}
+          Context: ${JSON.stringify(task.context || {})}
+          
+          Please complete this task by:
+          1. Analyzing what needs to be done
+          2. Implementing the necessary changes
+          3. Writing tests
+          4. Updating documentation
+          
+          Provide a structured response with:
+          - Analysis of the task
+          - Implementation plan
+          - Code changes (with file paths)
+          - Test cases
+          - Documentation updates
+          - Success criteria verification
+          `;
+            
+            const response = await anthropic.messages.create({
+              model: 'claude-3-opus-20240229',
+              max_tokens: 8000,
+              system: systemPrompt,
+              messages: [{ role: 'user', content: taskPrompt }],
+            });
+            
+            return response.content[0].text;
+          }
+          
+          const task = JSON.parse(process.env.TASK_DATA);
+          
+          executeTask(task)
+            .then(result => {
+              fs.writeFileSync('task-execution.json', JSON.stringify({
+                task,
+                result,
+                timestamp: new Date().toISOString(),
+              }, null, 2));
+              console.log('Task execution completed');
+            })
+            .catch(console.error);
+          EOF
+          
+          TASK_DATA='${{ toJson(matrix.task) }}' node execute-task.js
+          
+      - name: Apply Changes
+        run: |
+          # Create new branch for this task
+          git checkout -b ${{ env.BRANCH_NAME }}
+          
+          # Parse and apply changes from AI response
+          node -e "
+          const fs = require('fs');
+          const { execSync } = require('child_process');
+          
+          const execution = JSON.parse(fs.readFileSync('task-execution.json', 'utf8'));
+          const result = execution.result;
+          
+          // Extract code blocks and file paths
+          const codeBlocks = result.match(/FILE: (.+?)\\n```[\\w]*\\n([\\s\\S]*?)```/g) || [];
+          
+          let filesChanged = [];
+          
+          codeBlocks.forEach(block => {
+            const match = block.match(/FILE: (.+?)\\n```[\\w]*\\n([\\s\\S]*?)```/);
+            if (match) {
+              const filePath = match[1].trim();
+              const content = match[2];
+              
+              // Ensure directory exists
+              const dir = require('path').dirname(filePath);
+              execSync(\`mkdir -p \${dir}\`);
+              
+              // Write file
+              fs.writeFileSync(filePath, content);
+              filesChanged.push(filePath);
+              console.log(\`Updated: \${filePath}\`);
+            }
+          });
+          
+          // Save changed files list
+          fs.writeFileSync('changed-files.json', JSON.stringify(filesChanged, null, 2));
+          "
+          
+      - name: Run Tests
+        id: tests
+        continue-on-error: true
+        run: |
+          # Run relevant tests
+          if [ -f "package.json" ]; then
+            npm test -- --passWithNoTests || echo "Tests failed"
+          fi
+          
+      - name: Validate Changes
+        run: |
+          # AI self-validation
+          cat > validate-task.js << 'EOF'
+          const { Anthropic } = require('@anthropic-ai/sdk');
+          const fs = require('fs');
+          const { execSync } = require('child_process');
+          
+          const anthropic = new Anthropic({
+            apiKey: process.env.ANTHROPIC_API_KEY,
+          });
+          
+          async function validateTask() {
+            const execution = JSON.parse(fs.readFileSync('task-execution.json', 'utf8'));
+            const changedFiles = JSON.parse(fs.readFileSync('changed-files.json', 'utf8'));
+            
+            // Get diff of changes
+            const diff = execSync('git diff').toString();
+            
+            const prompt = `
+          You are Claude Code validating your own work.
+          
+          Task: ${execution.task.description}
+          
+          Changes made:
+          ${diff}
+          
+          Files changed: ${changedFiles.join(', ')}
+          
+          Please validate:
+          1. Does the implementation fulfill the task requirements?
+          2. Are there any potential issues or bugs?
+          3. Is the code quality acceptable?
+          4. Are tests adequate?
+          5. Overall success assessment (PASS/FAIL)
+          
+          Be honest and critical in your assessment.
+          `;
+            
+            const response = await anthropic.messages.create({
+              model: 'claude-3-opus-20240229',
+              max_tokens: 2000,
+              messages: [{ role: 'user', content: prompt }],
+            });
+            
+            return response.content[0].text;
+          }
+          
+          validateTask()
+            .then(validation => {
+              fs.writeFileSync('task-validation.json', JSON.stringify({ validation }, null, 2));
+              
+              if (validation.includes('FAIL')) {
+                console.error('Task validation failed');
+                process.exit(1);
+              }
+            })
+            .catch(console.error);
+          EOF
+          
+          node validate-task.js
+          
+      - name: Commit Task Changes
+        run: |
+          git add -A
+          git commit -m "feat: AI task implementation - ${{ matrix.task.id }}
+
+          Task: ${{ matrix.task.description }}
+          
+          Automated implementation by Claude Code
+          Task ID: ${{ env.TASK_ID }}
+          
+          Co-authored-by: Claude <claude-code[bot]@users.noreply.github.com>" || echo "No changes to commit"
+          
+      - name: Create Task PR
+        id: pr
+        run: |
+          # Only create PR if there are changes
+          if git diff --cached --exit-code; then
+            echo "No changes to push"
+            echo "pr_created=false" >> $GITHUB_OUTPUT
+          else
+            git push origin ${{ env.BRANCH_NAME }}
+            
+            PR_BODY=$(cat << 'EOF'
+          ## 🤖 AI Task Implementation
+          
+          **Task ID:** ${{ matrix.task.id }}
+          **Description:** ${{ matrix.task.description }}
+          
+          ### Task Details
+          
+          <details>
+          <summary>Full task specification</summary>
+          
+          ```json
+          ${{ toJson(matrix.task) }}
+          ```
+          
+          </details>
+          
+          ### Implementation Summary
+          
+          See `task-execution.json` for full AI reasoning.
+          
+          ### Validation Status
+          
+          See `task-validation.json` for self-assessment.
+          
+          ### Dependencies
+          
+          ${{ matrix.task.dependencies && join(matrix.task.dependencies, ', ') || 'None' }}
+          
+          ---
+          
+          *This PR was generated as part of an AI task sequence*
+          EOF
+          )
+            
+            PR_URL=$(gh pr create \
+              --title "AI Task: ${{ matrix.task.id }} - ${{ matrix.task.description }}" \
+              --body "$PR_BODY" \
+              --base main \
+              --head ${{ env.BRANCH_NAME }} \
+              --label "ai-task" \
+              --label "task-${{ matrix.task.id }}")
+              
+            echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
+            echo "pr_created=true" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Update Task Status
+        run: |
+          # Report task completion status
+          STATUS="completed"
+          if [ "${{ steps.pr.outputs.pr_created }}" != "true" ]; then
+            STATUS="no-changes"
+          fi
+          
+          # Create status artifact
+          echo '{
+            "task_id": "${{ matrix.task.id }}",
+            "status": "'$STATUS'",
+            "pr_url": "${{ steps.pr.outputs.pr_url }}",
+            "branch": "${{ env.BRANCH_NAME }}",
+            "timestamp": "'$(date -u +"%Y-%m-%dT%H:%M:%SZ")'"
+          }' > task-status-${{ env.TASK_ID }}.json
+          
+      - name: Upload Task Results
+        uses: actions/upload-artifact@v3
+        with:
+          name: task-results-${{ env.TASK_ID }}
+          path: |
+            task-execution.json
+            task-validation.json
+            task-status-*.json
+            changed-files.json
+            
+  task-aggregator:
+    needs: ai-task-executor
+    runs-on: ubuntu-latest
+    if: always()
+    
+    steps:
+      - name: Download All Results
+        uses: actions/download-artifact@v3
+        with:
+          path: task-results
+          
+      - name: Aggregate Results
+        run: |
+          # Combine all task results
+          echo "# Task Execution Summary" > summary.md
+          echo "" >> summary.md
+          
+          find task-results -name "task-status-*.json" -type f | while read -r file; do
+            TASK_ID=$(jq -r '.task_id' "$file")
+            STATUS=$(jq -r '.status' "$file")
+            PR_URL=$(jq -r '.pr_url // "N/A"' "$file")
+            
+            echo "- Task $TASK_ID: $STATUS (PR: $PR_URL)" >> summary.md
+          done
+          
+          cat summary.md >> $GITHUB_STEP_SUMMARY
+          
+      - name: Create Meta PR
+        if: needs.task-orchestrator.outputs.strategy == 'sequential'
+        run: |
+          # Create a meta PR that combines all task PRs
+          META_BODY=$(cat << 'EOF'
+          ## 🤖 AI Task Sequence Completed
+          
+          This meta-PR tracks the completion of an AI task sequence.
+          
+          ### Task Summary
+          
+          See individual PRs for detailed implementations.
+          
+          ### Next Steps
+          
+          1. Review individual task PRs
+          2. Merge in dependency order
+          3. Run integration tests
+          
+          ---
+          
+          *This is an automated task sequence coordination PR*
+          EOF
+          )
+          
+          # Create issue to track meta progress
+          gh issue create \
+            --title "AI Task Sequence: Completed" \
+            --body "$META_BODY" \
+            --label "ai-sequence" \
+            --label "meta-task"

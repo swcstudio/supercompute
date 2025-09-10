@@ -1,0 +1,468 @@
+name: Issue Automation & Task Decomposition
+
+on:
+  issues:
+    types: [opened, edited, labeled]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to process'
+        required: true
+        type: number
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  analyze-issue:
+    name: Analyze & Decompose Issue
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'issues' && 
+      (github.event.action == 'opened' || 
+       (github.event.action == 'labeled' && contains(github.event.label.name, 'ai-task')))
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+
+      - name: Install AI task analyzer
+        run: |
+          npm install openai @octokit/rest marked yaml
+
+      - name: Analyze issue complexity
+        id: analyze
+        uses: actions/github-script@v7
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        with:
+          script: |
+            const OpenAI = require('openai');
+            const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+            
+            const issue = context.payload.issue;
+            const issueContent = `${issue.title}\n\n${issue.body}`;
+            
+            // Analyze issue complexity and determine decomposition strategy
+            const analysis = await openai.chat.completions.create({
+              model: "gpt-4",
+              messages: [{
+                role: "system",
+                content: `You are an expert software architect analyzing GitHub issues for task decomposition.
+                          Analyze the complexity and provide structured breakdown for AI agents.
+                          Focus on creating atomic, well-defined subtasks that can be executed independently.`
+              }, {
+                role: "user",
+                content: `Analyze this issue and provide:
+                1. Complexity score (1-10)
+                2. Estimated story points
+                3. Required expertise domains
+                4. Suggested subtask breakdown
+                5. Dependencies between subtasks
+                6. Parallel execution opportunities
+                
+                Issue: ${issueContent}`
+              }],
+              temperature: 0.3,
+              response_format: { type: "json_object" }
+            });
+            
+            const result = JSON.parse(analysis.choices[0].message.content);
+            
+            // Store analysis results
+            core.setOutput('complexity', result.complexity_score);
+            core.setOutput('story_points', result.story_points);
+            core.setOutput('domains', JSON.stringify(result.expertise_domains));
+            core.setOutput('subtasks', JSON.stringify(result.subtasks));
+            core.setOutput('dependencies', JSON.stringify(result.dependencies));
+            
+            return result;
+
+      - name: Create subtask issues
+        if: steps.analyze.outputs.complexity > 5
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const parentIssue = context.payload.issue;
+            const subtasks = JSON.parse('${{ steps.analyze.outputs.subtasks }}');
+            const dependencies = JSON.parse('${{ steps.analyze.outputs.dependencies }}');
+            
+            // Create project board for complex issues
+            const { data: project } = await github.rest.projects.createForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: `Task: ${parentIssue.title}`,
+              body: `Automated task breakdown for issue #${parentIssue.number}`
+            });
+            
+            // Create subtask issues
+            const createdIssues = {};
+            for (const [index, subtask] of subtasks.entries()) {
+              const labels = ['subtask', `parent:${parentIssue.number}`];
+              
+              // Add domain-specific labels
+              if (subtask.domain) {
+                labels.push(`domain:${subtask.domain}`);
+              }
+              
+              // Add complexity labels
+              if (subtask.complexity <= 3) labels.push('good first issue');
+              else if (subtask.complexity <= 5) labels.push('intermediate');
+              else labels.push('advanced');
+              
+              const { data: newIssue } = await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `[Subtask ${index + 1}/${subtasks.length}] ${subtask.title}`,
+                body: `## Parent Issue
+                #${parentIssue.number}
+                
+                ## Description
+                ${subtask.description}
+                
+                ## Acceptance Criteria
+                ${subtask.acceptance_criteria.map(ac => `- [ ] ${ac}`).join('\n')}
+                
+                ## Technical Details
+                ${subtask.technical_details || 'N/A'}
+                
+                ## Dependencies
+                ${subtask.dependencies?.map(dep => `- Depends on: ${dep}`).join('\n') || 'None'}
+                
+                ## Estimated Effort
+                - Complexity: ${subtask.complexity}/10
+                - Story Points: ${subtask.story_points}
+                - Domain: ${subtask.domain}
+                
+                ## AI Agent Instructions
+                \`\`\`yaml
+                task_type: ${subtask.task_type}
+                files_to_modify: ${JSON.stringify(subtask.files_to_modify || [])}
+                test_requirements: ${JSON.stringify(subtask.test_requirements || [])}
+                validation_steps: ${JSON.stringify(subtask.validation_steps || [])}
+                \`\`\``,
+                labels,
+                assignees: subtask.suggested_assignees || []
+              });
+              
+              createdIssues[subtask.id] = newIssue.number;
+              
+              // Add to project board
+              await github.rest.projects.createCard({
+                column_id: project.columns[0].id,
+                content_id: newIssue.id,
+                content_type: 'Issue'
+              });
+            }
+            
+            // Update parent issue with subtask links
+            const subtaskList = Object.entries(createdIssues)
+              .map(([id, number]) => `- [ ] #${number}`)
+              .join('\n');
+            
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: parentIssue.number,
+              body: `${parentIssue.body}\n\n## Subtasks\n${subtaskList}\n\n## Task Decomposition\n- Complexity: ${{ steps.analyze.outputs.complexity }}/10\n- Total Story Points: ${{ steps.analyze.outputs.story_points }}\n- Domains: ${JSON.parse('${{ steps.analyze.outputs.domains }}').join(', ')}`
+            });
+
+  smart-assignment:
+    name: Smart Task Assignment
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'issues' && 
+      github.event.action == 'opened' &&
+      !contains(github.event.issue.labels.*.name, 'subtask')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Analyze contributor expertise
+        id: expertise
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Get recent contributors and their expertise areas
+            const { data: commits } = await github.rest.repos.listCommits({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100
+            });
+            
+            const contributorStats = {};
+            
+            for (const commit of commits) {
+              if (!commit.author) continue;
+              
+              const author = commit.author.login;
+              if (!contributorStats[author]) {
+                contributorStats[author] = {
+                  commits: 0,
+                  files: new Set(),
+                  domains: new Set()
+                };
+              }
+              
+              contributorStats[author].commits++;
+              
+              // Analyze commit to determine expertise
+              const { data: commitDetail } = await github.rest.repos.getCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: commit.sha
+              });
+              
+              for (const file of commitDetail.files) {
+                contributorStats[author].files.add(file.filename);
+                
+                // Determine domain from file path
+                if (file.filename.includes('core/')) contributorStats[author].domains.add('core');
+                if (file.filename.includes('remix/')) contributorStats[author].domains.add('remix');
+                if (file.filename.includes('next/')) contributorStats[author].domains.add('nextjs');
+                if (file.filename.includes('test')) contributorStats[author].domains.add('testing');
+                if (file.filename.includes('.github/')) contributorStats[author].domains.add('devops');
+              }
+            }
+            
+            return contributorStats;
+
+      - name: Match issue to contributors
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const contributorStats = ${{ steps.expertise.outputs.result }};
+            
+            // Extract domains from issue labels
+            const issueDomains = issue.labels
+              .filter(label => label.name.startsWith('domain:'))
+              .map(label => label.name.replace('domain:', ''));
+            
+            // Find best matches
+            const scores = {};
+            for (const [contributor, stats] of Object.entries(contributorStats)) {
+              scores[contributor] = 0;
+              
+              // Score based on domain match
+              for (const domain of issueDomains) {
+                if (stats.domains.has(domain)) {
+                  scores[contributor] += 10;
+                }
+              }
+              
+              // Score based on recent activity
+              scores[contributor] += Math.min(stats.commits, 10);
+            }
+            
+            // Get top 3 contributors
+            const topContributors = Object.entries(scores)
+              .sort(([,a], [,b]) => b - a)
+              .slice(0, 3)
+              .map(([contributor]) => contributor);
+            
+            if (topContributors.length > 0) {
+              await github.rest.issues.addAssignees({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                assignees: topContributors.slice(0, 1) // Assign to top match
+              });
+              
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: `🤖 **Smart Assignment Analysis**\n\nSuggested assignees based on expertise:\n${topContributors.map((c, i) => `${i + 1}. @${c}`).join('\n')}\n\nThis assignment is based on recent contribution patterns and domain expertise.`
+              });
+            }
+
+  ai-task-orchestration:
+    name: AI Task Orchestration
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'issue_comment' && 
+      contains(github.event.comment.body, '/ai-execute')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse AI command
+        id: parse
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const comment = context.payload.comment.body;
+            const issue = context.payload.issue;
+            
+            // Extract command parameters
+            const commandMatch = comment.match(/\/ai-execute\s+(\w+)(?:\s+(.*))?/);
+            if (!commandMatch) {
+              core.setFailed('Invalid command format');
+              return;
+            }
+            
+            const [, action, params] = commandMatch;
+            core.setOutput('action', action);
+            core.setOutput('params', params || '');
+            
+            // Validate user permissions
+            const { data: member } = await github.rest.orgs.checkMembershipForUser({
+              org: context.repo.owner,
+              username: context.payload.comment.user.login
+            }).catch(() => ({ data: null }));
+            
+            if (!member) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                body: '❌ You must be a member of the organization to execute AI tasks.'
+              });
+              core.setFailed('Unauthorized user');
+            }
+
+      - name: Execute AI task
+        if: success()
+        uses: actions/github-script@v7
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        with:
+          script: |
+            const action = '${{ steps.parse.outputs.action }}';
+            const params = '${{ steps.parse.outputs.params }}';
+            const issue = context.payload.issue;
+            
+            switch (action) {
+              case 'analyze':
+                // Trigger detailed analysis workflow
+                await github.rest.actions.createWorkflowDispatch({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  workflow_id: 'ai-analysis.yml',
+                  ref: 'main',
+                  inputs: {
+                    issue_number: issue.number.toString(),
+                    analysis_type: params || 'comprehensive'
+                  }
+                });
+                break;
+                
+              case 'implement':
+                // Trigger implementation workflow
+                await github.rest.actions.createWorkflowDispatch({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  workflow_id: 'ai-implementation.yml',
+                  ref: 'main',
+                  inputs: {
+                    issue_number: issue.number.toString(),
+                    implementation_strategy: params || 'automated'
+                  }
+                });
+                break;
+                
+              case 'review':
+                // Trigger code review workflow
+                await github.rest.actions.createWorkflowDispatch({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  workflow_id: 'ai-review.yml',
+                  ref: 'main',
+                  inputs: {
+                    issue_number: issue.number.toString(),
+                    review_depth: params || 'comprehensive'
+                  }
+                });
+                break;
+                
+              default:
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issue.number,
+                  body: `❌ Unknown action: ${action}\n\nAvailable actions:\n- \`/ai-execute analyze [type]\`\n- \`/ai-execute implement [strategy]\`\n- \`/ai-execute review [depth]\``
+                });
+            }
+
+  task-progress-tracking:
+    name: Track Task Progress
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'issues' && 
+      github.event.action == 'closed'
+    steps:
+      - name: Update parent task progress
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            
+            // Check if this is a subtask
+            const parentLabel = issue.labels.find(l => l.name.startsWith('parent:'));
+            if (!parentLabel) return;
+            
+            const parentNumber = parseInt(parentLabel.name.replace('parent:', ''));
+            
+            // Get parent issue
+            const { data: parentIssue } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: parentNumber
+            });
+            
+            // Parse subtasks from parent body
+            const subtaskRegex = /- \[([ x])\] #(\d+)/g;
+            let match;
+            const subtasks = [];
+            
+            while ((match = subtaskRegex.exec(parentIssue.body)) !== null) {
+              subtasks.push({
+                completed: match[1] === 'x',
+                number: parseInt(match[2])
+              });
+            }
+            
+            // Update completed status
+            const updatedBody = parentIssue.body.replace(
+              new RegExp(`- \\[.\\] #${issue.number}\\b`),
+              `- [x] #${issue.number}`
+            );
+            
+            // Calculate progress
+            const completed = subtasks.filter(st => st.completed || st.number === issue.number).length;
+            const total = subtasks.length;
+            const progress = Math.round((completed / total) * 100);
+            
+            // Update parent issue
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: parentNumber,
+              body: updatedBody
+            });
+            
+            // Add progress comment
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: parentNumber,
+              body: `📊 **Progress Update**\n\nSubtask #${issue.number} completed!\n\nOverall progress: ${completed}/${total} (${progress}%)\n\n${progress === 100 ? '🎉 All subtasks completed!' : ''}`
+            });
+            
+            // Close parent if all subtasks are done
+            if (progress === 100) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: parentNumber,
+                state: 'closed',
+                state_reason: 'completed'
+              });
+            }

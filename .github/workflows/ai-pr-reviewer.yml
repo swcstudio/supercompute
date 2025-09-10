@@ -1,0 +1,306 @@
+name: AI-Powered PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: number
+      review_type:
+        description: 'Type of review'
+        required: false
+        type: choice
+        options:
+          - comprehensive
+          - security
+          - performance
+          - quick
+        default: comprehensive
+
+env:
+  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  ai-review:
+    if: |
+      !github.event.pull_request.draft && 
+      !contains(github.event.pull_request.labels.*.name, 'skip-ai-review')
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout PR
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          
+      - name: Setup Review Environment
+        run: |
+          npm install -g @anthropic-ai/sdk
+          npm install -g typescript @typescript-eslint/parser
+          
+      - name: Get PR Details
+        id: pr_details
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            PR_NUMBER=${{ github.event.inputs.pr_number }}
+          else
+            PR_NUMBER=${{ github.event.pull_request.number }}
+          fi
+          
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          
+          # Get PR diff
+          gh pr diff $PR_NUMBER > pr-diff.txt
+          
+          # Get PR metadata
+          gh pr view $PR_NUMBER --json title,body,files,additions,deletions > pr-metadata.json
+          
+      - name: Analyze Code Changes
+        id: analyze
+        run: |
+          cat > analyze-pr.js << 'EOF'
+          const { Anthropic } = require('@anthropic-ai/sdk');
+          const fs = require('fs');
+          const { execSync } = require('child_process');
+          
+          const anthropic = new Anthropic({
+            apiKey: process.env.ANTHROPIC_API_KEY,
+          });
+          
+          async function analyzePR() {
+            const prDiff = fs.readFileSync('pr-diff.txt', 'utf8');
+            const prMetadata = JSON.parse(fs.readFileSync('pr-metadata.json', 'utf8'));
+            const reviewType = process.env.REVIEW_TYPE || 'comprehensive';
+            
+            const reviewPrompts = {
+              comprehensive: `
+          Perform a comprehensive code review focusing on:
+          1. Code quality and best practices
+          2. Potential bugs and edge cases
+          3. Performance implications
+          4. Security considerations
+          5. Test coverage
+          6. Documentation completeness
+          7. TypeScript type safety
+          8. Accessibility (for UI changes)
+          `,
+              security: `
+          Perform a security-focused review looking for:
+          1. SQL injection vulnerabilities
+          2. XSS vulnerabilities
+          3. Authentication/authorization issues
+          4. Sensitive data exposure
+          5. Dependency vulnerabilities
+          6. CORS and CSP issues
+          7. Input validation problems
+          `,
+              performance: `
+          Perform a performance-focused review examining:
+          1. Algorithm efficiency
+          2. Database query optimization
+          3. Memory leaks
+          4. Bundle size impact
+          5. Render performance (React)
+          6. Network request optimization
+          7. Caching opportunities
+          `,
+              quick: `
+          Perform a quick review focusing on:
+          1. Obvious bugs or issues
+          2. Code style violations
+          3. Missing tests
+          4. Basic security issues
+          `
+            };
+            
+            const prompt = `
+          You are Claude Code, an expert code reviewer.
+          
+          PR Title: ${prMetadata.title}
+          PR Description: ${prMetadata.body || 'No description provided'}
+          Files Changed: ${prMetadata.files.length}
+          Additions: +${prMetadata.additions}
+          Deletions: -${prMetadata.deletions}
+          
+          ${reviewPrompts[reviewType]}
+          
+          Here is the diff to review:
+          
+          ${prDiff}
+          
+          Provide a structured review with:
+          1. Summary of changes
+          2. Issues found (if any) with severity (🔴 Critical, 🟡 Warning, 🔵 Suggestion)
+          3. Code quality assessment
+          4. Specific inline comments for problematic code
+          5. Overall recommendation (Approve, Request Changes, or Comment)
+          
+          Format inline comments as:
+          FILE: path/to/file.ts
+          LINE: 42
+          COMMENT: Your comment here
+          SEVERITY: 🔴/🟡/🔵
+          `;
+            
+            const response = await anthropic.messages.create({
+              model: 'claude-3-opus-20240229',
+              max_tokens: 4000,
+              messages: [{ role: 'user', content: prompt }],
+            });
+            
+            return response.content[0].text;
+          }
+          
+          analyzePR()
+            .then(review => {
+              fs.writeFileSync('ai-review.json', JSON.stringify({ review }, null, 2));
+              console.log('Review completed');
+            })
+            .catch(console.error);
+          EOF
+          
+          REVIEW_TYPE="${{ github.event.inputs.review_type || 'comprehensive' }}" node analyze-pr.js
+          
+      - name: Post Review Comments
+        run: |
+          cat > post-review.js << 'EOF'
+          const fs = require('fs');
+          const { execSync } = require('child_process');
+          
+          const reviewData = JSON.parse(fs.readFileSync('ai-review.json', 'utf8'));
+          const review = reviewData.review;
+          
+          // Extract inline comments
+          const inlineComments = [];
+          const commentRegex = /FILE: (.+)\nLINE: (\d+)\nCOMMENT: (.+)\nSEVERITY: (.+)/g;
+          let match;
+          
+          while ((match = commentRegex.exec(review)) !== null) {
+            inlineComments.push({
+              path: match[1],
+              line: parseInt(match[2]),
+              body: `${match[4]} ${match[3]}`,
+            });
+          }
+          
+          // Extract overall review
+          const overallReview = review
+            .replace(commentRegex, '')
+            .trim();
+          
+          // Determine review event (APPROVE, REQUEST_CHANGES, COMMENT)
+          let reviewEvent = 'COMMENT';
+          if (review.includes('Overall recommendation: Approve')) {
+            reviewEvent = 'APPROVE';
+          } else if (review.includes('Overall recommendation: Request Changes')) {
+            reviewEvent = 'REQUEST_CHANGES';
+          }
+          
+          // Create review payload
+          const reviewPayload = {
+            event: reviewEvent,
+            body: `## 🤖 Claude Code Review\n\n${overallReview}\n\n---\n*This review was generated by Claude Code AI*`,
+            comments: inlineComments,
+          };
+          
+          fs.writeFileSync('review-payload.json', JSON.stringify(reviewPayload, null, 2));
+          
+          // Post review using GitHub CLI
+          const prNumber = process.env.PR_NUMBER;
+          
+          // Post general review comment
+          execSync(`gh pr review ${prNumber} --body-file review-payload.json --event ${reviewEvent}`);
+          
+          // Post inline comments if any
+          if (inlineComments.length > 0) {
+            inlineComments.forEach(comment => {
+              try {
+                execSync(`gh pr comment ${prNumber} --body "${comment.body}"`);
+              } catch (e) {
+                console.error(`Failed to post inline comment: ${e.message}`);
+              }
+            });
+          }
+          EOF
+          
+          PR_NUMBER=${{ steps.pr_details.outputs.pr_number }} node post-review.js
+          
+      - name: Check Review Status
+        id: review_status
+        run: |
+          # Check if changes were requested
+          REVIEW_PAYLOAD=$(cat review-payload.json)
+          if echo "$REVIEW_PAYLOAD" | grep -q '"event": "REQUEST_CHANGES"'; then
+            echo "status=changes_requested" >> $GITHUB_OUTPUT
+            echo "🔴 Changes requested by AI reviewer" >> $GITHUB_STEP_SUMMARY
+          elif echo "$REVIEW_PAYLOAD" | grep -q '"event": "APPROVE"'; then
+            echo "status=approved" >> $GITHUB_OUTPUT
+            echo "✅ Approved by AI reviewer" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "status=commented" >> $GITHUB_OUTPUT
+            echo "💬 AI reviewer left comments" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+      - name: Label PR
+        run: |
+          PR_NUMBER=${{ steps.pr_details.outputs.pr_number }}
+          
+          # Remove old AI review labels
+          gh pr edit $PR_NUMBER --remove-label "ai-approved" || true
+          gh pr edit $PR_NUMBER --remove-label "ai-changes-requested" || true
+          gh pr edit $PR_NUMBER --remove-label "ai-reviewed" || true
+          
+          # Add new label based on review
+          if [ "${{ steps.review_status.outputs.status }}" == "approved" ]; then
+            gh pr edit $PR_NUMBER --add-label "ai-approved"
+          elif [ "${{ steps.review_status.outputs.status }}" == "changes_requested" ]; then
+            gh pr edit $PR_NUMBER --add-label "ai-changes-requested"
+          else
+            gh pr edit $PR_NUMBER --add-label "ai-reviewed"
+          fi
+          
+      - name: Update PR Check
+        if: steps.review_status.outputs.status == 'changes_requested'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: context.sha,
+              state: 'failure',
+              target_url: context.payload.pull_request.html_url,
+              description: 'AI review requested changes',
+              context: 'ai-review/claude'
+            })
+            
+  ai-follow-up:
+    needs: ai-review
+    if: |
+      github.event_name == 'pull_request' && 
+      github.event.action == 'synchronize'
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Check Previous Reviews
+        run: |
+          # Check if previous AI reviews were addressed
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          
+          # Get previous AI comments
+          gh pr view $PR_NUMBER --comments | grep "Claude Code Review" || echo "No previous AI reviews"
+          
+      - name: Post Follow-up
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --body "🤖 I've noticed new changes. Re-running AI review..."
+            
+          # Trigger new review
+          gh workflow run ai-pr-reviewer.yml \
+            -f pr_number=${{ github.event.pull_request.number }} \
+            -f review_type=comprehensive

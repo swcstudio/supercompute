@@ -1,0 +1,380 @@
+name: Generate Changelog On-Demand
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_version:
+        description: 'Target version for changelog (e.g., 1.2.0)'
+        required: true
+        type: string
+      release_type:
+        description: 'Type of release'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - custom
+      include_date:
+        description: 'Include current date in version header'
+        required: false
+        type: boolean
+        default: true
+      dry_run:
+        description: 'Preview without creating PR'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: read
+
+jobs:
+  generate-custom-changelog:
+    name: Generate Custom Changelog
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup environment
+        run: |
+          npm install @anthropic-ai/sdk@latest js-yaml semver conventional-commits-parser
+
+      - name: Determine version
+        id: version
+        run: |
+          TARGET_VERSION="${{ github.event.inputs.target_version }}"
+          RELEASE_TYPE="${{ github.event.inputs.release_type }}"
+          
+          if [ "$RELEASE_TYPE" != "custom" ]; then
+            # Get current version and bump it
+            CURRENT_VERSION=$(node -p "require('./package.json').version")
+            TARGET_VERSION=$(npx semver $CURRENT_VERSION -i $RELEASE_TYPE)
+          fi
+          
+          echo "target_version=$TARGET_VERSION" >> $GITHUB_OUTPUT
+          echo "Target version: $TARGET_VERSION"
+
+      - name: Gather unreleased changes
+        id: changes
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const yaml = require('js-yaml');
+            const fs = require('fs');
+            const { execSync } = require('child_process');
+            
+            // Load changelog config
+            const config = yaml.load(fs.readFileSync('.github/changelog-config.yml', 'utf8'));
+            
+            // Get the last tag
+            let lastTag;
+            try {
+              lastTag = execSync('git describe --tags --abbrev=0', { encoding: 'utf8' }).trim();
+            } catch {
+              lastTag = execSync('git rev-list --max-parents=0 HEAD', { encoding: 'utf8' }).trim();
+            }
+            
+            // Get all commits since last tag
+            const commits = [];
+            const gitLog = execSync(
+              `git log ${lastTag}..HEAD --pretty=format:'%H|%an|%ae|%ad|%s|%b' --date=iso`,
+              { encoding: 'utf8' }
+            ).trim();
+            
+            if (gitLog) {
+              gitLog.split('\n').forEach(line => {
+                const [hash, author, email, date, subject, ...bodyParts] = line.split('|');
+                commits.push({
+                  hash: hash.substring(0, 7),
+                  author,
+                  email,
+                  date,
+                  subject,
+                  body: bodyParts.join('|'),
+                  type: subject.split(':')[0].replace(/[!()]/, ''),
+                  scope: subject.match(/\(([^)]+)\)/)?.[1] || null
+                });
+              });
+            }
+            
+            // Get issues and PRs
+            const prNumbers = new Set();
+            const issueNumbers = new Set();
+            
+            commits.forEach(commit => {
+              // Extract PR numbers
+              const prMatches = commit.subject.match(/#(\d+)/g) || [];
+              prMatches.forEach(match => prNumbers.add(parseInt(match.substring(1))));
+              
+              // Extract issue numbers from "Closes #" or "Fixes #"
+              const issueMatches = commit.body.match(/(?:closes?|fix(?:es)?)\s+#(\d+)/gi) || [];
+              issueMatches.forEach(match => {
+                const num = match.match(/#(\d+)/)[1];
+                issueNumbers.add(parseInt(num));
+              });
+            });
+            
+            // Fetch PR and issue details
+            const prDetails = [];
+            for (const prNumber of prNumbers) {
+              try {
+                const { data: pr } = await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: prNumber
+                });
+                prDetails.push({
+                  number: pr.number,
+                  title: pr.title,
+                  labels: pr.labels.map(l => l.name),
+                  author: pr.user.login,
+                  merged: pr.merged,
+                  merged_at: pr.merged_at
+                });
+              } catch (e) {
+                console.log(`Could not fetch PR #${prNumber}`);
+              }
+            }
+            
+            const issueDetails = [];
+            for (const issueNumber of issueNumbers) {
+              try {
+                const { data: issue } = await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber
+                });
+                issueDetails.push({
+                  number: issue.number,
+                  title: issue.title,
+                  labels: issue.labels.map(l => l.name),
+                  state: issue.state
+                });
+              } catch (e) {
+                console.log(`Could not fetch issue #${issueNumber}`);
+              }
+            }
+            
+            return {
+              commits,
+              prDetails,
+              issueDetails,
+              lastTag,
+              config
+            };
+
+      - name: Generate changelog with Claude
+        id: changelog
+        uses: actions/github-script@v7
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        with:
+          script: |
+            const Anthropic = require('@anthropic-ai/sdk');
+            const anthropic = new Anthropic({
+              apiKey: process.env.ANTHROPIC_API_KEY,
+            });
+            
+            const { commits, prDetails, issueDetails, lastTag, config } = ${{ steps.changes.outputs.result }};
+            const targetVersion = '${{ steps.version.outputs.target_version }}';
+            const includeDate = ${{ github.event.inputs.include_date }};
+            
+            // Prepare detailed context for Claude
+            const context = {
+              commits: commits.map(c => ({
+                message: c.subject,
+                type: c.type,
+                scope: c.scope,
+                author: c.author,
+                hash: c.hash,
+                body: c.body
+              })),
+              pullRequests: prDetails,
+              issues: issueDetails,
+              config: config,
+              statistics: {
+                totalCommits: commits.length,
+                contributors: [...new Set(commits.map(c => c.author))].length,
+                prsFixed: prDetails.length,
+                issuesClosed: issueDetails.filter(i => i.state === 'closed').length
+              }
+            };
+            
+            const message = await anthropic.messages.create({
+              model: 'claude-3-opus-20240229',
+              max_tokens: 4000,
+              temperature: 0.3,
+              system: `You are an expert technical writer creating a changelog for the Katalyst-React framework.
+                       Follow the configuration provided and create an exceptional changelog entry.
+                       
+                       Configuration rules:
+                       ${JSON.stringify(config.ai_instructions, null, 2)}
+                       
+                       Categories to use:
+                       ${config.categories.map(c => `- ${c.title}: For ${c.commit_types.join(', ')} commits`).join('\n')}`,
+              messages: [{
+                role: 'user',
+                content: `Generate a changelog entry for version ${targetVersion} based on this data:
+                
+                ${JSON.stringify(context, null, 2)}
+                
+                Requirements:
+                1. Use the Keep a Changelog format
+                2. Group changes by the configured categories
+                3. Include PR/issue numbers with links
+                4. Highlight breaking changes prominently
+                5. Add migration guide if there are breaking changes
+                6. Credit contributors appropriately
+                7. Use emojis from the category titles
+                8. ${includeDate ? `Include date: ${new Date().toISOString().split('T')[0]}` : 'Do not include date'}
+                
+                Make it informative, user-friendly, and exciting!`
+              }]
+            });
+            
+            return message.content[0].text;
+
+      - name: Preview or create PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const changelog = `${{ steps.changelog.outputs.result }}`;
+            const targetVersion = '${{ steps.version.outputs.target_version }}';
+            const isDryRun = ${{ github.event.inputs.dry_run }};
+            
+            if (isDryRun) {
+              // Just output the preview
+              console.log('=== CHANGELOG PREVIEW ===');
+              console.log(changelog);
+              console.log('=== END PREVIEW ===');
+              
+              // Create a comment on the latest commit
+              const { data: commits } = await github.rest.repos.listCommits({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                per_page: 1
+              });
+              
+              await github.rest.repos.createCommitComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: commits[0].sha,
+                body: `## 📋 Changelog Preview for v${targetVersion}\n\n${changelog}\n\n---\n*This is a dry run preview. No PR was created.*`
+              });
+            } else {
+              // Create actual PR
+              const { execSync } = require('child_process');
+              const fs = require('fs');
+              
+              // Create branch
+              const branch = `changelog-v${targetVersion}-${Date.now()}`;
+              execSync('git config user.name "Katalyst Claude Bot"');
+              execSync('git config user.email "claude-bot@katalyst-react.dev"');
+              execSync(`git checkout -b ${branch}`);
+              
+              // Update CHANGELOG.md
+              let existingChangelog = '';
+              try {
+                existingChangelog = fs.readFileSync('CHANGELOG.md', 'utf8');
+              } catch {
+                existingChangelog = `# Changelog
+              
+              All notable changes to the Katalyst-React framework will be documented in this file.
+              
+              The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+              and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+              
+              `;
+              }
+              
+              // Insert new entry after header
+              const headerEnd = existingChangelog.indexOf('\n## ');
+              if (headerEnd > -1) {
+                existingChangelog = existingChangelog.substring(0, headerEnd) + '\n' + changelog + '\n' + existingChangelog.substring(headerEnd);
+              } else {
+                existingChangelog += '\n' + changelog;
+              }
+              
+              fs.writeFileSync('CHANGELOG.md', existingChangelog);
+              
+              // Update package.json version if not custom
+              if ('${{ github.event.inputs.release_type }}' !== 'custom') {
+                const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+                packageJson.version = targetVersion;
+                fs.writeFileSync('package.json', JSON.stringify(packageJson, null, 2) + '\n');
+                
+                // Also update workspace packages
+                const workspaces = ['core', 'remix', 'next', 'shared'];
+                for (const workspace of workspaces) {
+                  try {
+                    const wsPackageJson = JSON.parse(fs.readFileSync(`${workspace}/package.json`, 'utf8'));
+                    wsPackageJson.version = targetVersion;
+                    fs.writeFileSync(`${workspace}/package.json`, JSON.stringify(wsPackageJson, null, 2) + '\n');
+                  } catch (e) {
+                    console.log(`Could not update ${workspace}/package.json`);
+                  }
+                }
+              }
+              
+              // Commit and push
+              execSync('git add -A');
+              execSync(`git commit -m "chore: prepare release v${targetVersion}
+              
+              - Update CHANGELOG.md with AI-generated entries
+              - Bump version to ${targetVersion}
+              
+              Generated by Claude AI
+              Co-authored-by: Claude <claude@anthropic.com>"`);
+              
+              execSync(`git push origin ${branch}`);
+              
+              // Create PR
+              const { data: pr } = await github.rest.pulls.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `chore: prepare release v${targetVersion}`,
+                body: `## 🚀 Release Preparation for v${targetVersion}
+                
+                This PR prepares the changelog and version bump for the upcoming release.
+                
+                ### Changes
+                - ✅ Generated comprehensive changelog entry
+                - ✅ Updated version in package.json files
+                - ✅ Analyzed ${${{ steps.changes.outputs.result }}.commits.length} commits
+                - ✅ Included ${${{ steps.changes.outputs.result }}.prDetails.length} PRs
+                - ✅ Referenced ${${{ steps.changes.outputs.result }}.issueDetails.length} issues
+                
+                ### Changelog Preview
+                <details>
+                <summary>Click to expand</summary>
+                
+                ${changelog}
+                </details>
+                
+                ### Next Steps
+                1. Review the generated changelog
+                2. Make any necessary adjustments
+                3. Merge this PR
+                4. Create a new release with tag v${targetVersion}
+                
+                ---
+                🤖 Generated by Claude 3 Opus`,
+                head: branch,
+                base: 'main'
+              });
+              
+              // Add labels
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                labels: ['release', 'changelog', 'automated']
+              });
+            }

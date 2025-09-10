@@ -1,0 +1,55 @@
+{
+  "session_id": "7570727d",
+  "prompt_count": 2217,
+  "tool_count": 10,
+  "error_count": 5,
+  "generated_tools": [
+    "AutoTool_7570727d_0"
+  ],
+  "active_protocols": [
+    "self.reflect"
+  ],
+  "learning_patterns": {
+    "prompt_hash_d7d8d747": 1,
+    "prompt_hash_5a5ed609": 1,
+    "prompt_hash_e404434f": 1,
+    "prompt_hash_1452dc04": 1,
+    "prompt_hash_1e2050d1": 1,
+    "success_": 5,
+    "unknown": [
+      {
+        "message": "FileNotFoundError",
+        "timestamp": "2025-08-22T22:19:25.399169",
+        "context": "Reading non-existent file"
+      },
+      {
+        "message": "SyntaxError",
+        "timestamp": "2025-08-22T22:19:25.399260",
+        "context": "Invalid Python syntax"
+      },
+      {
+        "message": "ImportError",
+        "timestamp": "2025-08-22T22:19:25.399352",
+        "context": "Missing module"
+      },
+      {
+        "message": "KeyError",
+        "timestamp": "2025-08-22T22:19:25.399445",
+        "context": "Missing dictionary key"
+      },
+      {
+        "message": "TimeoutError",
+        "timestamp": "2025-08-22T22:19:25.399541",
+        "context": "Operation timed out"
+      }
+    ],
+    "prompt_hash_3684fc19": 1,
+    "prompt_hash_93504b65": 1948,
+    "prompt_hash_d7058e4a": 214,
+    "prompt_hash_5e3847e6": 22,
+    "prompt_hash_2b84f102": 18,
+    "prompt_hash_d377c752": 1,
+    "prompt_hash_47d6b0eb": 6,
+    "prompt_hash_68213f10": 2
+  }
+}

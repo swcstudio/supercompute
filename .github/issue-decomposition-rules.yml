@@ -1,0 +1,209 @@
+# Issue Decomposition Rules for AI Task Management
+
+decomposition_rules:
+  complexity_thresholds:
+    simple: 1-3
+    medium: 4-6
+    complex: 7-8
+    epic: 9-10
+
+  subtask_limits:
+    min_subtasks: 2
+    max_subtasks: 10
+    max_depth: 3
+
+  auto_decompose_labels:
+    - epic
+    - feature
+    - enhancement
+    - refactor
+    - migration
+
+  skip_decomposition_labels:
+    - bug
+    - hotfix
+    - documentation
+    - subtask
+    - trivial
+
+domain_mapping:
+  core:
+    paths:
+      - core/**
+      - shared/src/core/**
+    expertise:
+      - react
+      - typescript
+      - component-architecture
+    
+  remix:
+    paths:
+      - remix/**
+      - shared/src/remix/**
+    expertise:
+      - remix
+      - ssr
+      - routing
+      
+  nextjs:
+    paths:
+      - next/**
+      - shared/src/next/**
+    expertise:
+      - nextjs
+      - react
+      - api-routes
+      
+  testing:
+    paths:
+      - tests/**
+      - "**/*.test.ts"
+      - "**/*.test.tsx"
+    expertise:
+      - testing
+      - jest
+      - playwright
+      
+  devops:
+    paths:
+      - .github/**
+      - docker/**
+      - k8s/**
+    expertise:
+      - github-actions
+      - docker
+      - kubernetes
+      
+  performance:
+    paths:
+      - benchmarks/**
+      - "**/*.bench.ts"
+    expertise:
+      - performance
+      - optimization
+      - profiling
+
+task_types:
+  feature_implementation:
+    complexity_multiplier: 1.0
+    requires:
+      - implementation
+      - tests
+      - documentation
+    
+  bug_fix:
+    complexity_multiplier: 0.8
+    requires:
+      - root_cause_analysis
+      - fix
+      - regression_test
+      
+  refactoring:
+    complexity_multiplier: 1.2
+    requires:
+      - analysis
+      - implementation
+      - tests
+      - migration_guide
+      
+  performance_optimization:
+    complexity_multiplier: 1.5
+    requires:
+      - profiling
+      - optimization
+      - benchmarks
+      - validation
+      
+  security_fix:
+    complexity_multiplier: 1.3
+    requires:
+      - vulnerability_assessment
+      - patch
+      - security_test
+      - audit
+
+estimation_factors:
+  base_story_points:
+    trivial: 1
+    simple: 2
+    medium: 5
+    complex: 8
+    epic: 13
+    
+  domain_complexity_modifiers:
+    core: 1.0
+    remix: 1.1
+    nextjs: 1.1
+    testing: 0.9
+    devops: 1.2
+    performance: 1.4
+    
+  risk_modifiers:
+    breaking_change: 1.5
+    security_sensitive: 1.4
+    performance_critical: 1.3
+    public_api: 1.2
+    experimental: 1.6
+
+ai_agent_capabilities:
+  code_generation:
+    confidence_threshold: 0.85
+    max_file_size: 5000
+    supported_languages:
+      - typescript
+      - javascript
+      - tsx
+      - jsx
+      - json
+      - yaml
+      - markdown
+      
+  code_review:
+    checks:
+      - syntax_correctness
+      - type_safety
+      - best_practices
+      - security_vulnerabilities
+      - performance_issues
+      - test_coverage
+      
+  test_generation:
+    coverage_target: 0.8
+    test_types:
+      - unit
+      - integration
+      - e2e
+    frameworks:
+      - jest
+      - vitest
+      - playwright
+
+automation_triggers:
+  auto_assign:
+    enabled: true
+    strategy: expertise_match
+    max_assignees: 2
+    
+  auto_label:
+    enabled: true
+    rules:
+      - contains: "bug"
+        labels: ["bug", "needs-triage"]
+      - contains: "feature"
+        labels: ["enhancement", "needs-discussion"]
+      - contains: "security"
+        labels: ["security", "priority-high"]
+        
+  auto_decompose:
+    enabled: true
+    min_complexity: 6
+    require_approval: false
+    
+  auto_estimate:
+    enabled: true
+    show_confidence: true
+    factors:
+      - complexity
+      - domain
+      - dependencies
+      - risk

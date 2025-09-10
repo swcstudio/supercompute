@@ -1,0 +1,109 @@
+version: 2
+updates:
+  # Enable version updates for npm
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+    open-pull-requests-limit: 10
+    groups:
+      development-dependencies:
+        patterns:
+          - "@types/*"
+          - "@storybook/*"
+          - "@playwright/*"
+          - "eslint*"
+          - "prettier*"
+          - "jest*"
+          - "vitest*"
+        update-types:
+          - "minor"
+          - "patch"
+      production-dependencies:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "@types/*"
+          - "@storybook/*"
+          - "@playwright/*"
+          - "eslint*"
+          - "prettier*"
+          - "jest*"
+          - "vitest*"
+        update-types:
+          - "patch"
+    labels:
+      - "dependencies"
+      - "automated"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    pull-request-branch-name:
+      separator: "/"
+
+  # Enable version updates for GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+    labels:
+      - "github-actions"
+      - "automated"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+
+  # Enable version updates for Docker
+  - package-ecosystem: "docker"
+    directory: "/docker"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "04:00"
+    labels:
+      - "docker"
+      - "automated"
+    commit-message:
+      prefix: "build"
+      include: "scope"
+
+  # Framework-specific updates
+  - package-ecosystem: "npm"
+    directory: "/core"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "framework: core"
+      - "dependencies"
+      - "automated"
+
+  - package-ecosystem: "npm"
+    directory: "/remix"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "framework: remix"
+      - "dependencies"
+      - "automated"
+
+  - package-ecosystem: "npm"
+    directory: "/next"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "framework: next"
+      - "dependencies"
+      - "automated"
+
+  - package-ecosystem: "npm"
+    directory: "/shared"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "framework: shared"
+      - "dependencies"
+      - "automated"

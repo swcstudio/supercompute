@@ -1,0 +1,428 @@
+name: AI Refactoring Assistant
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Code to refactor (file path or pattern)'
+        required: true
+        type: string
+      refactor_type:
+        description: 'Type of refactoring'
+        required: true
+        type: choice
+        options:
+          - performance
+          - readability
+          - modularity
+          - patterns
+          - typescript
+          - react-hooks
+          - async-await
+          - functional
+        default: readability
+      scope:
+        description: 'Refactoring scope'
+        required: false
+        type: choice
+        options:
+          - conservative
+          - moderate
+          - aggressive
+        default: moderate
+  issue_comment:
+    types: [created]
+
+env:
+  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  refactor-code:
+    if: |
+      github.event_name == 'workflow_dispatch' || 
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/refactor'))
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Parse Refactor Request
+        id: parse
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "target=${{ github.event.inputs.target }}" >> $GITHUB_OUTPUT
+            echo "type=${{ github.event.inputs.refactor_type }}" >> $GITHUB_OUTPUT
+            echo "scope=${{ github.event.inputs.scope }}" >> $GITHUB_OUTPUT
+          else
+            # Parse from issue comment
+            COMMENT="${{ github.event.comment.body }}"
+            # Extract target from comment like "/refactor src/components performance"
+            TARGET=$(echo "$COMMENT" | sed -n 's/.*\/refactor \([^ ]*\).*/\1/p')
+            TYPE=$(echo "$COMMENT" | sed -n 's/.*\/refactor [^ ]* \([^ ]*\).*/\1/p')
+            
+            echo "target=${TARGET:-src}" >> $GITHUB_OUTPUT
+            echo "type=${TYPE:-readability}" >> $GITHUB_OUTPUT
+            echo "scope=moderate" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Setup AI Environment
+        run: |
+          npm install -g @anthropic-ai/sdk @typescript-eslint/parser
+          npm install --save-dev prettier eslint
+          
+      - name: Analyze Code Quality
+        run: |
+          cat > analyze-code-quality.js << 'EOF'
+          const fs = require('fs');
+          const path = require('path');
+          const { execSync } = require('child_process');
+          
+          function analyzeCodeQuality(targetPath) {
+            const analysis = {
+              files: [],
+              issues: [],
+              metrics: {},
+              patterns: []
+            };
+            
+            // Find files to analyze
+            let files = [];
+            if (fs.statSync(targetPath).isDirectory()) {
+              files = execSync(`find ${targetPath} -type f \\( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" \\) | head -50`)
+                .toString()
+                .split('\n')
+                .filter(Boolean);
+            } else {
+              files = [targetPath];
+            }
+            
+            files.forEach(file => {
+              if (!fs.existsSync(file)) return;
+              
+              const content = fs.readFileSync(file, 'utf8');
+              const fileAnalysis = {
+                path: file,
+                lines: content.split('\n').length,
+                issues: [],
+                complexity: 0
+              };
+              
+              // Check for code smells
+              if (content.match(/\/\/ TODO|\/\/ FIXME|\/\/ HACK/gi)) {
+                fileAnalysis.issues.push('Has TODO/FIXME comments');
+              }
+              
+              if (content.match(/console\.(log|error|warn)/g)) {
+                fileAnalysis.issues.push('Contains console statements');
+              }
+              
+              if (content.match(/any/g) && file.endsWith('.ts')) {
+                fileAnalysis.issues.push('Uses "any" type');
+              }
+              
+              // Check function length
+              const functions = content.match(/function\s+\w+\s*\([^)]*\)\s*{|const\s+\w+\s*=\s*\([^)]*\)\s*=>\s*{/g) || [];
+              if (functions.length > 0) {
+                const avgFunctionLength = content.length / functions.length;
+                if (avgFunctionLength > 1000) {
+                  fileAnalysis.issues.push('Long functions detected');
+                }
+              }
+              
+              // Cyclomatic complexity (simplified)
+              const conditions = (content.match(/if\s*\(|while\s*\(|for\s*\(|case\s+|catch\s*\(/g) || []).length;
+              fileAnalysis.complexity = conditions;
+              
+              analysis.files.push(fileAnalysis);
+            });
+            
+            // Detect patterns
+            const allContent = analysis.files.map(f => fs.readFileSync(f.path, 'utf8')).join('\n');
+            
+            if (allContent.includes('class ') && allContent.includes('extends Component')) {
+              analysis.patterns.push('class-components');
+            }
+            if (allContent.includes('useState') || allContent.includes('useEffect')) {
+              analysis.patterns.push('react-hooks');
+            }
+            if (allContent.includes('async') && allContent.includes('await')) {
+              analysis.patterns.push('async-await');
+            }
+            if (allContent.includes('.then(') && allContent.includes('.catch(')) {
+              analysis.patterns.push('promises');
+            }
+            
+            return analysis;
+          }
+          
+          const target = process.env.TARGET_PATH || 'src';
+          const analysis = analyzeCodeQuality(target);
+          fs.writeFileSync('code-quality-analysis.json', JSON.stringify(analysis, null, 2));
+          EOF
+          
+          TARGET_PATH="${{ steps.parse.outputs.target }}" node analyze-code-quality.js
+          
+      - name: AI Refactoring
+        run: |
+          cat > refactor-code.js << 'EOF'
+          const { Anthropic } = require('@anthropic-ai/sdk');
+          const fs = require('fs');
+          const path = require('path');
+          
+          const anthropic = new Anthropic({
+            apiKey: process.env.ANTHROPIC_API_KEY,
+          });
+          
+          async function refactorCode() {
+            const analysis = JSON.parse(fs.readFileSync('code-quality-analysis.json', 'utf8'));
+            const refactorType = process.env.REFACTOR_TYPE;
+            const scope = process.env.REFACTOR_SCOPE;
+            
+            const refactorPrompts = {
+              performance: `Optimize for performance:
+                - Reduce unnecessary re-renders
+                - Optimize loops and algorithms
+                - Implement memoization
+                - Reduce bundle size
+                - Optimize database queries`,
+              
+              readability: `Improve code readability:
+                - Clear variable and function names
+                - Extract complex logic into functions
+                - Add appropriate comments
+                - Consistent formatting
+                - Reduce cognitive complexity`,
+              
+              modularity: `Improve modularity:
+                - Extract reusable components
+                - Create utility functions
+                - Implement proper separation of concerns
+                - Use composition over inheritance
+                - Create clean interfaces`,
+              
+              patterns: `Apply design patterns:
+                - Identify and implement appropriate patterns
+                - Replace anti-patterns
+                - Use SOLID principles
+                - Implement dependency injection
+                - Apply functional programming concepts`,
+              
+              typescript: `Improve TypeScript usage:
+                - Replace 'any' with proper types
+                - Add missing type annotations
+                - Create interfaces for objects
+                - Use generics where appropriate
+                - Implement type guards`,
+              
+              'react-hooks': `Convert to React Hooks:
+                - Convert class components to functional
+                - Replace lifecycle methods with hooks
+                - Extract custom hooks
+                - Optimize hook dependencies
+                - Use built-in hooks effectively`,
+              
+              'async-await': `Modernize async code:
+                - Convert promises to async/await
+                - Implement proper error handling
+                - Optimize concurrent operations
+                - Add loading states
+                - Handle race conditions`,
+              
+              functional: `Apply functional programming:
+                - Use pure functions
+                - Implement immutability
+                - Use map/filter/reduce
+                - Avoid side effects
+                - Implement function composition`
+            };
+            
+            const scopeInstructions = {
+              conservative: 'Make minimal changes that preserve exact behavior',
+              moderate: 'Make reasonable improvements while maintaining compatibility',
+              aggressive: 'Significantly restructure code for maximum improvement'
+            };
+            
+            const refactoredFiles = [];
+            
+            for (const file of analysis.files) {
+              if (!fs.existsSync(file.path)) continue;
+              
+              const content = fs.readFileSync(file.path, 'utf8');
+              
+              const prompt = `
+              You are Claude Code, an expert at refactoring code.
+              
+              Refactor this code with focus on: ${refactorType}
+              Scope: ${scope} - ${scopeInstructions[scope]}
+              
+              Current code quality issues:
+              ${file.issues.join('\n')}
+              
+              Complexity: ${file.complexity}
+              
+              Code to refactor:
+              \`\`\`${path.extname(file.path).slice(1)}
+              ${content}
+              \`\`\`
+              
+              Requirements:
+              ${refactorPrompts[refactorType]}
+              
+              Additional requirements:
+              - Maintain all existing functionality
+              - Keep the same exports/API
+              - Follow project conventions
+              - Ensure type safety
+              - Add helpful comments for complex changes
+              
+              Provide the refactored code with explanations of key changes.
+              `;
+              
+              const response = await anthropic.messages.create({
+                model: 'claude-3-opus-20240229',
+                max_tokens: 8000,
+                messages: [{ role: 'user', content: prompt }],
+              });
+              
+              const refactoredContent = response.content[0].text;
+              
+              // Extract code from response
+              const codeMatch = refactoredContent.match(/```(?:\w+)?\n([\s\S]*?)```/);
+              if (codeMatch) {
+                const refactoredCode = codeMatch[1];
+                
+                // Extract explanations
+                const explanations = refactoredContent
+                  .replace(/```[\s\S]*?```/g, '')
+                  .trim();
+                
+                refactoredFiles.push({
+                  path: file.path,
+                  original: content,
+                  refactored: refactoredCode,
+                  explanations: explanations
+                });
+              }
+            }
+            
+            return refactoredFiles;
+          }
+          
+          refactorCode()
+            .then(refactoredFiles => {
+              fs.writeFileSync('refactoring-results.json', JSON.stringify(refactoredFiles, null, 2));
+              
+              // Apply refactoring
+              refactoredFiles.forEach(file => {
+                fs.writeFileSync(file.path, file.refactored);
+                console.log(`Refactored: ${file.path}`);
+              });
+            })
+            .catch(console.error);
+          EOF
+          
+          REFACTOR_TYPE="${{ steps.parse.outputs.type }}" \
+          REFACTOR_SCOPE="${{ steps.parse.outputs.scope }}" \
+          node refactor-code.js
+          
+      - name: Run Tests
+        continue-on-error: true
+        run: |
+          npm test || echo "Tests need attention after refactoring"
+          
+      - name: Format Code
+        run: |
+          npx prettier --write "${{ steps.parse.outputs.target }}" || echo "Prettier formatting skipped"
+          
+      - name: Create Refactoring Report
+        run: |
+          cat > create-report.js << 'EOF'
+          const fs = require('fs');
+          
+          const results = JSON.parse(fs.readFileSync('refactoring-results.json', 'utf8'));
+          const analysis = JSON.parse(fs.readFileSync('code-quality-analysis.json', 'utf8'));
+          
+          let report = `# Refactoring Report
+          
+          ## Summary
+          
+          - **Files Refactored**: ${results.length}
+          - **Refactor Type**: ${process.env.REFACTOR_TYPE}
+          - **Scope**: ${process.env.REFACTOR_SCOPE}
+          - **Total Issues Found**: ${analysis.issues.length}
+          
+          ## Changes Made
+          
+          `;
+          
+          results.forEach(file => {
+            report += `### ${file.path}\n\n`;
+            report += `${file.explanations}\n\n`;
+            
+            // Add diff preview
+            const originalLines = file.original.split('\n').length;
+            const refactoredLines = file.refactored.split('\n').length;
+            
+            report += `- Original: ${originalLines} lines\n`;
+            report += `- Refactored: ${refactoredLines} lines\n`;
+            report += `- Change: ${refactoredLines - originalLines} lines\n\n`;
+          });
+          
+          report += `## Quality Improvements
+          
+          | Metric | Before | After |
+          |--------|--------|-------|
+          | Code Complexity | ${analysis.files.reduce((sum, f) => sum + f.complexity, 0)} | TBD |
+          | Type Safety Issues | ${analysis.files.filter(f => f.issues.includes('Uses "any" type')).length} | TBD |
+          | Console Statements | ${analysis.files.filter(f => f.issues.includes('Contains console statements')).length} | TBD |
+          
+          ## Next Steps
+          
+          1. Review the changes carefully
+          2. Run comprehensive tests
+          3. Check for any breaking changes
+          4. Update documentation if needed
+          
+          ---
+          *This refactoring was performed by Claude Code AI*
+          `;
+          
+          fs.writeFileSync('REFACTORING_REPORT.md', report);
+          EOF
+          
+          REFACTOR_TYPE="${{ steps.parse.outputs.type }}" \
+          REFACTOR_SCOPE="${{ steps.parse.outputs.scope }}" \
+          node create-report.js
+          
+      - name: Create PR
+        run: |
+          git config --global user.name "Claude Code[bot]"
+          git config --global user.email "claude-code[bot]@users.noreply.github.com"
+          
+          BRANCH="refactor/${{ steps.parse.outputs.type }}-$(date +%s)"
+          git checkout -b $BRANCH
+          
+          git add -A
+          git commit -m "refactor: AI-powered ${{ steps.parse.outputs.type }} improvements
+
+          Target: ${{ steps.parse.outputs.target }}
+          Type: ${{ steps.parse.outputs.type }}
+          Scope: ${{ steps.parse.outputs.scope }}
+          
+          See REFACTORING_REPORT.md for details
+          
+          Co-authored-by: Claude <claude-code[bot]@users.noreply.github.com>"
+          
+          git push origin $BRANCH
+          
+          gh pr create \
+            --title "refactor: AI-powered ${{ steps.parse.outputs.type }} improvements" \
+            --body-file REFACTORING_REPORT.md \
+            --base main \
+            --head $BRANCH \
+            --label "refactoring" \
+            --label "ai-generated"

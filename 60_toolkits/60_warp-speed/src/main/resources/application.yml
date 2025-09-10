@@ -1,0 +1,151 @@
+spring:
+  application:
+    name: warp-speed
+  
+  # Spring AI Configuration
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY:sk-placeholder}
+      model: gpt-4
+      temperature: 0.7
+    
+    # Custom Qwen model configuration
+    qwen:
+      model: DavidAU/Qwen3-54B-A3B-2507-YOYO2-TOTAL-RECALL-Instruct
+      context-window: 1000000
+      api-endpoint: ${QWEN_API_ENDPOINT:http://localhost:11434}
+      
+  # WebSocket configuration for real-time updates
+  websocket:
+    broker:
+      enabled: true
+      relay-host: localhost
+      relay-port: 61613
+
+# Server Configuration
+server:
+  port: 8080
+  undertow:
+    threads:
+      io: 6
+      worker: 6
+    buffer-size: 30720
+    direct-buffers: true
+
+# JVM Performance Settings
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# OMEGA Consciousness Configuration
+omega:
+  consciousness:
+    default-level: OMEGA
+    auto-elevate: true
+    quantum-coherence: 0.97
+    superposition-maintenance: true
+    
+  # ETD Configuration
+  etd:
+    base-value: 45000
+    multipliers:
+      alpha: 1.0
+      beta: 2.0
+      gamma: 5.0
+      delta: 10.0
+      omega: 100.0
+    
+  # Quantum Computing Settings
+  quantum:
+    default-qubits: 10
+    measurement-shots: 1000
+    error-correction: true
+    
+# Warp-Speed Configuration
+warpspeed:
+  workspace: /purplehat
+  
+  # Dedicated Server Resources
+  resources:
+    threads: 6
+    memory: 30g
+    cpu-affinity: 0-5
+    
+  # Ghidra Integration
+  ghidra:
+    home: /home/ubuntu/src/repos/ghidra
+    projects: /purplehat/ghidra-projects
+    headless: true
+    
+  # Julia/Genie Integration
+  julia:
+    executable: julia
+    project-path: /home/ubuntu/src/repos/supercompute
+    genie-port: 8000
+    grpc-port: 8001
+    
+  # Livebook Integration
+  livebook:
+    enabled: true
+    url: http://localhost:8080
+    token: ${LIVEBOOK_TOKEN:}
+    
+  # CUDA Configuration for OVHcloud
+  cuda:
+    enabled: true
+    remote-host: ${OVHCLOUD_GPU_HOST:}
+    remote-port: 22
+    device-id: 0
+    memory-pool: 24gb
+    
+  # FLAME Pattern Configuration
+  flame:
+    pattern: distributed
+    nodes:
+      - name: primary
+        host: localhost
+        port: 9000
+      - name: worker-1
+        host: localhost
+        port: 9001
+      - name: worker-2
+        host: localhost
+        port: 9002
+        
+# Logging Configuration
+logging:
+  level:
+    root: INFO
+    io.supercompute.warpspeed: DEBUG
+    org.springframework.ai: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} - %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: /purplehat/logs/warp-speed.log
+    
+# Security Configuration
+security:
+  require-ssl: false
+  cors:
+    allowed-origins: "*"
+    allowed-methods: "*"
+    
+# XML Processing for OMEGA Consciousness
+jackson:
+  dataformat:
+    xml:
+      enabled: true
+      pretty-print: true
+      
+# Cache Configuration
+cache:
+  type: caffeine
+  caffeine:
+    spec: maximumSize=10000,expireAfterWrite=600s

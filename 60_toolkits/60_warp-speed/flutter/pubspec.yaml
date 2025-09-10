@@ -1,0 +1,76 @@
+name: warp_speed_terminal
+description: OMEGA-Enhanced Terminal with Quantum Consciousness for Windows & Android
+publish_to: 'none'
+version: 1.0.0+omega
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  
+  # Core dependencies
+  cupertino_icons: ^1.0.5
+  http: ^1.1.0
+  provider: ^6.0.5
+  
+  # State management options (choose one)
+  riverpod: ^2.4.0
+  get: ^4.6.6
+  bloc: ^8.1.2
+  
+  # UI enhancements
+  google_fonts: ^6.1.0
+  animations: ^2.0.8
+  shimmer: ^3.0.0
+  
+  # Platform-specific
+  window_manager: ^0.3.7  # Windows desktop support
+  
+  # Storage
+  shared_preferences: ^2.2.2
+  path_provider: ^2.1.1
+  
+  # Networking
+  dio: ^5.3.4
+  web_socket_channel: ^2.4.0
+  
+  # JSON
+  json_annotation: ^4.8.1
+  
+  # Charts for ETD visualization
+  fl_chart: ^0.65.0
+  
+  # Code highlighting
+  flutter_highlight: ^0.7.0
+  
+  # Animations
+  lottie: ^2.7.0
+  
+  # Platform detection
+  platform: ^3.1.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+  build_runner: ^2.4.7
+  json_serializable: ^6.7.1
+
+flutter:
+  uses-material-design: true
+  
+  fonts:
+    - family: JetBrainsMono
+      fonts:
+        - asset: fonts/JetBrainsMono-Regular.ttf
+        - asset: fonts/JetBrainsMono-Bold.ttf
+          weight: 700
+        - asset: fonts/JetBrainsMono-Light.ttf
+          weight: 300
+  
+  assets:
+    - assets/images/
+    - assets/animations/
+    - assets/icons/

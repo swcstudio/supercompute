@@ -1,0 +1,397 @@
+name: Autonomous Changelog Generation
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      since_tag:
+        description: 'Generate changelog since this tag (leave empty for auto-detect)'
+        required: false
+        type: string
+      include_prereleases:
+        description: 'Include pre-release versions'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  generate-changelog:
+    name: Generate Changelog with AI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+
+      - name: Install dependencies
+        run: |
+          npm install @anthropic-ai/sdk@latest @octokit/rest conventional-changelog-parser semver
+
+      - name: Get version information
+        id: version
+        run: |
+          # Get current version from package.json
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          
+          # Get latest tag
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          echo "latest_tag=$LATEST_TAG" >> $GITHUB_OUTPUT
+          
+          # Determine the tag to generate changelog from
+          if [ -n "${{ github.event.inputs.since_tag }}" ]; then
+            SINCE_TAG="${{ github.event.inputs.since_tag }}"
+          elif [ -n "$LATEST_TAG" ]; then
+            SINCE_TAG="$LATEST_TAG"
+          else
+            SINCE_TAG=$(git rev-list --max-parents=0 HEAD)
+          fi
+          echo "since_tag=$SINCE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Collect commit data
+        id: commits
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { execSync } = require('child_process');
+            const sinceTag = '${{ steps.version.outputs.since_tag }}';
+            
+            // Get all commits since the last tag
+            const gitLog = execSync(
+              `git log ${sinceTag}..HEAD --pretty=format:'%H|%an|%ae|%ad|%s|%b' --date=iso`,
+              { encoding: 'utf8' }
+            ).trim();
+            
+            if (!gitLog) {
+              console.log('No new commits found');
+              return [];
+            }
+            
+            const commits = gitLog.split('\n').map(line => {
+              const [hash, author, email, date, subject, ...bodyParts] = line.split('|');
+              const body = bodyParts.join('|');
+              
+              return {
+                hash: hash.substring(0, 7),
+                author,
+                email,
+                date,
+                subject,
+                body,
+                message: subject + (body ? '\n\n' + body : '')
+              };
+            });
+            
+            // Get PR information for commits
+            const prRegex = /#(\d+)/g;
+            for (const commit of commits) {
+              const prMatches = commit.subject.match(prRegex);
+              if (prMatches) {
+                commit.prs = prMatches.map(match => parseInt(match.substring(1)));
+                
+                // Get PR details
+                commit.prDetails = [];
+                for (const prNumber of commit.prs) {
+                  try {
+                    const { data: pr } = await github.rest.pulls.get({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      pull_number: prNumber
+                    });
+                    commit.prDetails.push({
+                      number: pr.number,
+                      title: pr.title,
+                      labels: pr.labels.map(l => l.name),
+                      author: pr.user.login
+                    });
+                  } catch (e) {
+                    console.log(`Could not fetch PR #${prNumber}`);
+                  }
+                }
+              }
+            }
+            
+            // Get file changes for each commit
+            for (const commit of commits) {
+              const files = execSync(
+                `git diff-tree --no-commit-id --name-only -r ${commit.hash}`,
+                { encoding: 'utf8' }
+              ).trim().split('\n').filter(Boolean);
+              
+              commit.files = files;
+              
+              // Categorize by framework
+              commit.frameworks = [];
+              if (files.some(f => f.startsWith('core/'))) commit.frameworks.push('core');
+              if (files.some(f => f.startsWith('remix/'))) commit.frameworks.push('remix');
+              if (files.some(f => f.startsWith('next/'))) commit.frameworks.push('next');
+              if (files.some(f => f.startsWith('shared/'))) commit.frameworks.push('shared');
+              if (files.some(f => f.startsWith('.github/'))) commit.frameworks.push('ci/cd');
+            }
+            
+            return commits;
+
+      - name: Analyze commits with Claude
+        id: analyze
+        uses: actions/github-script@v7
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        with:
+          script: |
+            const Anthropic = require('@anthropic-ai/sdk');
+            const anthropic = new Anthropic({
+              apiKey: process.env.ANTHROPIC_API_KEY,
+            });
+            
+            const commits = ${{ steps.commits.outputs.result }};
+            const currentVersion = '${{ steps.version.outputs.current_version }}';
+            const sinceTag = '${{ steps.version.outputs.since_tag }}';
+            
+            if (!commits || commits.length === 0) {
+              console.log('No commits to analyze');
+              return null;
+            }
+            
+            // Prepare commit summary for Claude
+            const commitSummary = commits.map(c => {
+              let summary = `- ${c.subject} (${c.hash})`;
+              if (c.prDetails && c.prDetails.length > 0) {
+                summary += `\n  PRs: ${c.prDetails.map(pr => `#${pr.number}: ${pr.title}`).join(', ')}`;
+                summary += `\n  Labels: ${[...new Set(c.prDetails.flatMap(pr => pr.labels))].join(', ')}`;
+              }
+              if (c.frameworks.length > 0) {
+                summary += `\n  Frameworks: ${c.frameworks.join(', ')}`;
+              }
+              summary += `\n  Files: ${c.files.length} changed`;
+              return summary;
+            }).join('\n\n');
+            
+            // Generate changelog with Claude
+            const message = await anthropic.messages.create({
+              model: 'claude-3-opus-20240229',
+              max_tokens: 4000,
+              temperature: 0.3,
+              system: `You are an expert technical writer creating a changelog for the Katalyst-React framework.
+                       Create clear, informative, and user-friendly changelog entries that help users understand what changed.
+                       
+                       Guidelines:
+                       - Group changes by category (Added, Changed, Fixed, Deprecated, Removed, Security)
+                       - Use clear, concise language
+                       - Include PR numbers and commit hashes for reference
+                       - Highlight breaking changes prominently
+                       - Focus on user impact, not implementation details
+                       - Use active voice and present tense
+                       - Include migration guides for breaking changes
+                       - Credit contributors when appropriate`,
+              messages: [{
+                role: 'user',
+                content: `Generate a changelog entry for version ${currentVersion} based on these commits since ${sinceTag}:
+                
+                ${commitSummary}
+                
+                Total commits: ${commits.length}
+                Date: ${new Date().toISOString().split('T')[0]}
+                
+                Please format the output as a complete changelog entry following the Keep a Changelog format.
+                Include all relevant sections and ensure the entry is comprehensive and helpful for users.
+                If there are breaking changes, include a migration guide section.`
+              }]
+            });
+            
+            return message.content[0].text;
+
+      - name: Read existing changelog
+        id: existing
+        run: |
+          if [ -f "CHANGELOG.md" ]; then
+            # Read the existing changelog
+            EXISTING_CONTENT=$(cat CHANGELOG.md)
+            
+            # Save to output (base64 encoded to handle newlines)
+            echo "content<<EOF" >> $GITHUB_OUTPUT
+            echo "$EXISTING_CONTENT" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+            
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update changelog
+        if: steps.analyze.outputs.result != 'null'
+        run: |
+          # Get the new entry from Claude
+          NEW_ENTRY=$(cat << 'CLAUDE_OUTPUT'
+          ${{ steps.analyze.outputs.result }}
+          CLAUDE_OUTPUT
+          )
+          
+          # Create or update CHANGELOG.md
+          if [ "${{ steps.existing.outputs.exists }}" = "true" ]; then
+            # Insert new entry after the header
+            cat > CHANGELOG.md << 'EOF'
+          # Changelog
+          
+          All notable changes to the Katalyst-React framework will be documented in this file.
+          
+          The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+          and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+          
+          EOF
+            
+            echo "$NEW_ENTRY" >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+            
+            # Append the rest of the existing changelog (skip the header)
+            EXISTING="${{ steps.existing.outputs.content }}"
+            echo "$EXISTING" | sed '1,/^## /{ /^## /!d; }' >> CHANGELOG.md
+          else
+            # Create new changelog
+            cat > CHANGELOG.md << 'EOF'
+          # Changelog
+          
+          All notable changes to the Katalyst-React framework will be documented in this file.
+          
+          The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+          and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+          
+          EOF
+            
+            echo "$NEW_ENTRY" >> CHANGELOG.md
+          fi
+
+      - name: Create pull request
+        if: steps.analyze.outputs.result != 'null'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { execSync } = require('child_process');
+            
+            // Configure git
+            execSync('git config user.name "Katalyst Claude Bot"');
+            execSync('git config user.email "claude-bot@katalyst-react.dev"');
+            
+            // Create a new branch
+            const branch = `changelog-update-${Date.now()}`;
+            execSync(`git checkout -b ${branch}`);
+            
+            // Commit the changes
+            execSync('git add CHANGELOG.md');
+            execSync(`git commit -m "docs: update changelog for v${{ steps.version.outputs.current_version }}
+            
+            Generated by Claude AI based on ${${{ steps.commits.outputs.result }}.length} commits
+            Since: ${{ steps.version.outputs.since_tag }}
+            
+            Co-authored-by: Claude <claude@anthropic.com>"`);
+            
+            // Push the branch
+            execSync(`git push origin ${branch}`);
+            
+            // Create PR
+            const { data: pr } = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `docs: update changelog for v${{ steps.version.outputs.current_version }}`,
+              body: `## 🤖 Automated Changelog Update
+              
+              This PR was automatically generated by Claude AI to update the changelog with recent changes.
+              
+              ### Summary
+              - **Version**: v${{ steps.version.outputs.current_version }}
+              - **Commits analyzed**: ${${{ steps.commits.outputs.result }}.length}
+              - **Since**: ${{ steps.version.outputs.since_tag }}
+              
+              ### What Claude Did
+              1. Analyzed all commits since the last release
+              2. Grouped changes by category (Added, Changed, Fixed, etc.)
+              3. Generated user-friendly descriptions
+              4. Included PR references and commit hashes
+              5. Highlighted breaking changes (if any)
+              
+              ### Review Checklist
+              - [ ] Changelog entries are accurate
+              - [ ] Breaking changes are properly highlighted
+              - [ ] Migration guides are included (if needed)
+              - [ ] Credit is given to contributors
+              - [ ] Format follows Keep a Changelog standards
+              
+              ### Preview
+              <details>
+              <summary>Click to see the generated changelog entry</summary>
+              
+              \`\`\`markdown
+              ${{ steps.analyze.outputs.result }}
+              \`\`\`
+              </details>
+              
+              ---
+              
+              🤖 Generated with Claude 3 Opus by Anthropic`,
+              head: branch,
+              base: 'main',
+              draft: false
+            });
+            
+            // Add labels
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              labels: ['documentation', 'automated', 'changelog']
+            });
+            
+            // Auto-merge if configured
+            if ('${{ vars.AUTO_MERGE_CHANGELOG }}' === 'true') {
+              await github.rest.pulls.merge({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                merge_method: 'squash'
+              });
+            }
+
+  generate-release-notes:
+    name: Generate Release Notes
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: generate-changelog
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract release notes from changelog
+        id: notes
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          
+          # Extract the section for this version from CHANGELOG.md
+          NOTES=$(sed -n "/^## \\[${VERSION#v}\\]/,/^## \\[/p" CHANGELOG.md | sed '$d')
+          
+          if [ -z "$NOTES" ]; then
+            NOTES="No changelog entry found for ${VERSION}"
+          fi
+          
+          # Save to file for GitHub release
+          echo "$NOTES" > release-notes.md
+          
+          echo "notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$NOTES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Update GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: release-notes.md
+          append_body: true

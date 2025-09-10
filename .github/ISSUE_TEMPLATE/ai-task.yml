@@ -1,0 +1,165 @@
+name: 🤖 AI-Ready Task
+description: Create a task optimized for AI decomposition and implementation
+title: "[AI Task]: "
+labels: ["ai-task", "needs-analysis"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This template is designed for complex tasks that benefit from AI analysis and decomposition.
+        The more detail you provide, the better the AI can break down and implement the task.
+
+  - type: input
+    id: title
+    attributes:
+      label: Task Title
+      description: A clear, concise title for the task
+      placeholder: "Implement advanced caching system for API responses"
+    validations:
+      required: true
+
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: What is the goal of this task?
+      placeholder: |
+        The objective is to implement a sophisticated caching system that:
+        - Reduces API response times by 50%
+        - Handles cache invalidation intelligently
+        - Works across all framework variants (Core, Remix, Next.js)
+    validations:
+      required: true
+
+  - type: textarea
+    id: requirements
+    attributes:
+      label: Requirements
+      description: Detailed requirements and acceptance criteria
+      placeholder: |
+        1. Cache API responses with configurable TTL
+        2. Support multiple cache storage backends (memory, Redis, etc.)
+        3. Implement cache warming strategies
+        4. Add cache hit/miss metrics
+        5. Ensure cache consistency across distributed systems
+      render: markdown
+    validations:
+      required: true
+
+  - type: dropdown
+    id: complexity
+    attributes:
+      label: Estimated Complexity
+      description: Your initial assessment of task complexity
+      options:
+        - Low (1-3)
+        - Medium (4-6)
+        - High (7-8)
+        - Epic (9-10)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: frameworks
+    attributes:
+      label: Affected Frameworks
+      description: Which framework variants does this affect?
+      multiple: true
+      options:
+        - Core
+        - Remix
+        - Next.js
+        - Shared
+        - All
+    validations:
+      required: true
+
+  - type: textarea
+    id: technical_details
+    attributes:
+      label: Technical Details
+      description: Any technical specifications, constraints, or considerations
+      placeholder: |
+        - Must be compatible with existing middleware architecture
+        - Should use TypeScript generics for type safety
+        - Performance overhead should be < 5ms per request
+        - Must support both server-side and client-side caching
+      render: markdown
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: List any dependencies on other tasks, systems, or resources
+      placeholder: |
+        - Depends on: #123 (API middleware refactor)
+        - Requires: Redis instance for distributed caching
+        - Blocked by: Performance baseline measurements
+
+  - type: dropdown
+    id: ai_implementation
+    attributes:
+      label: AI Implementation Preference
+      description: How should AI assist with this task?
+      options:
+        - Full automation (AI implements with minimal human review)
+        - Guided implementation (AI provides code, human refines)
+        - Analysis only (AI breaks down task, human implements)
+        - Human implementation (Traditional approach)
+      default: 1
+    validations:
+      required: true
+
+  - type: textarea
+    id: success_metrics
+    attributes:
+      label: Success Metrics
+      description: How will we measure successful completion?
+      placeholder: |
+        - All tests pass with 90%+ coverage
+        - Performance benchmarks show 50% improvement
+        - Documentation is complete
+        - No breaking changes to existing APIs
+
+  - type: textarea
+    id: additional_context
+    attributes:
+      label: Additional Context
+      description: Any other information that might help with task analysis
+      placeholder: |
+        - Reference implementation: https://example.com/caching-best-practices
+        - Similar system in production at: CompanyX
+        - Performance requirements based on: Q4 2024 targets
+
+  - type: checkboxes
+    id: ai_features
+    attributes:
+      label: AI Assistance Features
+      description: Select which AI features you want to use
+      options:
+        - label: Automatic task decomposition into subtasks
+          required: false
+        - label: AI-generated implementation plan
+          required: false
+        - label: Automated code generation
+          required: false
+        - label: AI code review on PR
+          required: false
+        - label: Performance analysis and optimization suggestions
+          required: false
+        - label: Test generation
+          required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission Checklist
+      description: Please confirm the following
+      options:
+        - label: I have searched for similar issues
+          required: true
+        - label: This task is well-defined and ready for implementation
+          required: true
+        - label: I understand AI will analyze and potentially implement this task
+          required: true

@@ -1,0 +1,258 @@
+name: Dependency Management
+
+on:
+  schedule:
+    - cron: '0 6 * * 1' # Every Monday at 6 AM UTC
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+      - '**/package.json'
+      - 'deno.json'
+      - 'import_map.json'
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+          cache: 'npm'
+
+      - name: Run npm audit
+        id: npm-audit
+        run: |
+          npm audit --json > audit-results.json || true
+          echo "audit_exit_code=$?" >> $GITHUB_OUTPUT
+
+      - name: Process audit results
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const auditResults = JSON.parse(fs.readFileSync('audit-results.json', 'utf8'));
+            
+            if (auditResults.metadata && auditResults.metadata.vulnerabilities) {
+              const vulns = auditResults.metadata.vulnerabilities;
+              const total = vulns.total || 0;
+              
+              if (total > 0) {
+                const summary = `
+                  🚨 **Security Vulnerabilities Found**
+                  - Critical: ${vulns.critical || 0}
+                  - High: ${vulns.high || 0}
+                  - Moderate: ${vulns.moderate || 0}
+                  - Low: ${vulns.low || 0}
+                `;
+                
+                if (context.eventName === 'pull_request') {
+                  await github.rest.issues.createComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: context.issue.number,
+                    body: summary
+                  });
+                }
+                
+                if (vulns.critical > 0 || vulns.high > 0) {
+                  core.setFailed('Critical or high vulnerabilities found');
+                }
+              }
+            }
+
+      - name: Upload audit results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: npm-audit-results
+          path: audit-results.json
+
+  update-dependencies:
+    name: Update Dependencies
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+          cache: 'npm'
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: 'v2.x'
+
+      - name: Check for updates
+        id: check-updates
+        run: |
+          npx npm-check-updates -u --target minor
+          npm install
+          npm audit fix
+          
+          # Check if there are changes
+          if [[ `git status --porcelain` ]]; then
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Pull Request
+        if: steps.check-updates.outputs.has_changes == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: 'chore: update dependencies'
+          title: 'chore: automated dependency updates'
+          body: |
+            ## 🤖 Automated Dependency Updates
+            
+            This PR contains automated dependency updates for security and compatibility.
+            
+            ### Changes
+            - Updated dependencies to latest minor versions
+            - Applied security fixes from npm audit
+            
+            ### Checklist
+            - [ ] All tests pass
+            - [ ] No breaking changes identified
+            - [ ] Security vulnerabilities resolved
+            
+            Please review the changes and merge if everything looks good.
+          branch: deps/automated-updates
+          delete-branch: true
+
+  license-check:
+    name: License Compliance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check licenses
+        run: |
+          npx license-checker --production --summary --excludePrivatePackages > licenses.txt
+          
+          # Check for problematic licenses
+          if grep -E "(GPL|AGPL|SSPL|EUPL)" licenses.txt; then
+            echo "⚠️ Found potentially incompatible licenses"
+            exit 1
+          fi
+
+      - name: Upload license report
+        uses: actions/upload-artifact@v4
+        with:
+          name: license-report
+          path: licenses.txt
+
+  outdated-check:
+    name: Check Outdated Packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+          cache: 'npm'
+
+      - name: Check outdated packages
+        run: |
+          npm outdated --json > outdated.json || true
+          
+          # Generate markdown report
+          node -e "
+            const outdated = require('./outdated.json');
+            const packages = Object.entries(outdated);
+            
+            if (packages.length > 0) {
+              console.log('## Outdated Packages\\n');
+              console.log('| Package | Current | Wanted | Latest | Type |');
+              console.log('|---------|---------|--------|--------|------|');
+              
+              packages.forEach(([name, info]) => {
+                console.log(\`| \${name} | \${info.current} | \${info.wanted} | \${info.latest} | \${info.type} |\`);
+              });
+            }
+          " > outdated-report.md
+
+      - name: Upload outdated report
+        uses: actions/upload-artifact@v4
+        with:
+          name: outdated-packages-report
+          path: outdated-report.md
+
+  bundle-size:
+    name: Bundle Size Analysis
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and analyze
+        run: |
+          # Build each framework
+          npm run build:core
+          npm run build:remix
+          npm run build:next
+          
+          # Analyze bundle sizes
+          npx size-limit --json > size-report.json
+
+      - name: Compare with base branch
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const sizeReport = JSON.parse(fs.readFileSync('size-report.json', 'utf8'));
+            
+            // Format size report for comment
+            let comment = '## 📊 Bundle Size Report\n\n';
+            comment += '| Framework | Size | Gzipped | Change |\n';
+            comment += '|-----------|------|---------|--------|\n';
+            
+            // Add size data (this is simplified, you'd need to implement proper comparison)
+            sizeReport.forEach(item => {
+              comment += `| ${item.name} | ${item.size} | ${item.gzip} | - |\n`;
+            });
+            
+            // Post comment
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: comment
+            });

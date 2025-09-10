@@ -1,0 +1,381 @@
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: number
+      review_depth:
+        description: 'Review depth'
+        required: true
+        default: 'comprehensive'
+        type: choice
+        options:
+          - quick
+          - standard
+          - comprehensive
+          - security-focused
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  checks: write
+
+jobs:
+  ai-review:
+    name: AI Code Review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR details
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.payload.pull_request?.number || ${{ github.event.inputs.pr_number || 0 }};
+            
+            if (!prNumber) {
+              core.setFailed('No PR number provided');
+              return;
+            }
+            
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+            
+            // Get changed files
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+              per_page: 100
+            });
+            
+            // Get diff
+            const { data: diff } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+              mediaType: {
+                format: 'diff'
+              }
+            });
+            
+            core.setOutput('pr_number', prNumber);
+            core.setOutput('pr_title', pr.title);
+            core.setOutput('pr_body', pr.body);
+            core.setOutput('files', JSON.stringify(files));
+            core.setOutput('diff', diff);
+
+      - name: Perform AI review
+        id: review
+        uses: actions/github-script@v7
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        with:
+          script: |
+            const OpenAI = require('openai');
+            const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+            
+            const files = JSON.parse('${{ steps.pr.outputs.files }}');
+            const diff = `${{ steps.pr.outputs.diff }}`;
+            const reviewDepth = '${{ github.event.inputs.review_depth || 'standard' }}';
+            
+            const reviewPrompts = {
+              quick: 'Focus on obvious issues, syntax errors, and critical problems only.',
+              standard: 'Perform standard code review checking for best practices, potential bugs, and improvements.',
+              comprehensive: 'Perform thorough analysis including architecture, performance, security, testing, and maintainability.',
+              'security-focused': 'Focus primarily on security vulnerabilities, data validation, authentication, and authorization issues.'
+            };
+            
+            // Analyze overall PR
+            const overallReview = await openai.chat.completions.create({
+              model: "gpt-4",
+              messages: [{
+                role: "system",
+                content: `You are an expert code reviewer for a React/TypeScript project.
+                         ${reviewPrompts[reviewDepth]}
+                         Be constructive and specific in your feedback.`
+              }, {
+                role: "user",
+                content: `Review this pull request:
+                
+                Title: ${{ steps.pr.outputs.pr_title }}
+                Description: ${{ steps.pr.outputs.pr_body }}
+                Files changed: ${files.length}
+                
+                Key areas to review:
+                1. Code quality and best practices
+                2. Potential bugs or issues
+                3. Performance implications
+                4. Security concerns
+                5. Test coverage
+                6. Documentation
+                
+                Provide review in markdown format with:
+                - Summary
+                - Issues found (if any)
+                - Suggestions for improvement
+                - Positive aspects`
+              }],
+              temperature: 0.3
+            });
+            
+            // Review individual files
+            const fileReviews = [];
+            for (const file of files.slice(0, 10)) { // Limit to 10 files to avoid API limits
+              if (file.patch && !file.filename.includes('node_modules')) {
+                const fileReview = await openai.chat.completions.create({
+                  model: "gpt-4",
+                  messages: [{
+                    role: "system",
+                    content: `You are reviewing a specific file change. Focus on:
+                             - Code correctness
+                             - Best practices for ${file.filename.split('.').pop()} files
+                             - Potential issues
+                             - Suggestions for improvement`
+                  }, {
+                    role: "user",
+                    content: `Review this file change:
+                    
+                    File: ${file.filename}
+                    Status: ${file.status}
+                    Changes: +${file.additions} -${file.deletions}
+                    
+                    Patch:
+                    ${file.patch}
+                    
+                    Provide specific line-by-line feedback where appropriate.`
+                  }],
+                  temperature: 0.2
+                });
+                
+                fileReviews.push({
+                  filename: file.filename,
+                  review: fileReview.choices[0].message.content,
+                  additions: file.additions,
+                  deletions: file.deletions
+                });
+              }
+            }
+            
+            return {
+              overall: overallReview.choices[0].message.content,
+              files: fileReviews
+            };
+
+      - name: Post review comments
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = ${{ steps.pr.outputs.pr_number }};
+            const review = ${{ steps.review.outputs.result }};
+            const reviewDepth = '${{ github.event.inputs.review_depth || 'standard' }}';
+            
+            // Create review comment
+            const reviewBody = `# 🤖 AI Code Review
+            
+            **Review Depth**: ${reviewDepth}
+            
+            ${review.overall}
+            
+            ## 📁 File-Specific Feedback
+            
+            ${review.files.map(f => `
+            ### \`${f.filename}\` (+${f.additions} -${f.deletions})
+            ${f.review}
+            `).join('\n---\n')}
+            
+            ---
+            
+            <details>
+            <summary>📋 Review Metadata</summary>
+            
+            - **Model**: GPT-4
+            - **Review Type**: ${reviewDepth}
+            - **Files Reviewed**: ${review.files.length}
+            - **Timestamp**: ${new Date().toISOString()}
+            
+            </details>
+            
+            > 💡 **Note**: This is an automated review. Please consider the feedback, but use your judgment for final decisions.`;
+            
+            // Post the review
+            await github.rest.pulls.createReview({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+              body: reviewBody,
+              event: 'COMMENT'
+            });
+            
+            // Add label
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              labels: ['ai-reviewed']
+            });
+
+  code-quality-check:
+    name: AI Code Quality Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Analyze code patterns
+        id: patterns
+        uses: actions/github-script@v7
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        with:
+          script: |
+            const OpenAI = require('openai');
+            const fs = require('fs').promises;
+            const path = require('path');
+            
+            const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+            const prNumber = context.payload.pull_request?.number;
+            
+            if (!prNumber) return;
+            
+            // Get changed files
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+            
+            // Analyze patterns
+            const patterns = {
+              antiPatterns: [],
+              suggestions: [],
+              bestPractices: []
+            };
+            
+            for (const file of files) {
+              if (file.filename.endsWith('.tsx') || file.filename.endsWith('.ts')) {
+                // Check for common anti-patterns
+                const content = file.patch || '';
+                
+                // Check for console.logs
+                if (content.includes('console.log')) {
+                  patterns.antiPatterns.push({
+                    file: file.filename,
+                    issue: 'Console.log statements found',
+                    suggestion: 'Remove console.log statements before merging'
+                  });
+                }
+                
+                // Check for any type
+                if (content.includes(': any')) {
+                  patterns.antiPatterns.push({
+                    file: file.filename,
+                    issue: 'Usage of "any" type detected',
+                    suggestion: 'Replace with proper TypeScript types'
+                  });
+                }
+                
+                // Check for missing error handling
+                if (content.includes('try {') && !content.includes('catch')) {
+                  patterns.antiPatterns.push({
+                    file: file.filename,
+                    issue: 'Try block without catch',
+                    suggestion: 'Add proper error handling'
+                  });
+                }
+              }
+            }
+            
+            return patterns;
+
+      - name: Create check run
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const patterns = ${{ steps.patterns.outputs.result }};
+            const prNumber = context.payload.pull_request?.number;
+            
+            if (!prNumber) return;
+            
+            const checkRun = await github.rest.checks.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              name: 'AI Code Quality',
+              head_sha: context.payload.pull_request.head.sha,
+              status: 'completed',
+              conclusion: patterns.antiPatterns.length > 0 ? 'neutral' : 'success',
+              output: {
+                title: 'AI Code Quality Analysis',
+                summary: `Found ${patterns.antiPatterns.length} potential issues`,
+                text: patterns.antiPatterns.length > 0 
+                  ? `## Issues Found\n\n${patterns.antiPatterns.map(p => 
+                      `- **${p.file}**: ${p.issue}\n  - Suggestion: ${p.suggestion}`
+                    ).join('\n')}`
+                  : '✅ No issues found!'
+              }
+            });
+
+  suggest-improvements:
+    name: Suggest Improvements
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate improvement suggestions
+        uses: actions/github-script@v7
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        with:
+          script: |
+            const OpenAI = require('openai');
+            const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+            
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number
+            });
+            
+            // Generate suggestions based on PR context
+            const suggestions = await openai.chat.completions.create({
+              model: "gpt-4",
+              messages: [{
+                role: "system",
+                content: `You are a helpful code improvement assistant.
+                         Suggest practical improvements for code quality, performance, and maintainability.`
+              }, {
+                role: "user",
+                content: `Based on this PR titled "${pr.title}", suggest improvements in these areas:
+                1. Performance optimizations
+                2. Code organization
+                3. Testing strategies
+                4. Documentation needs
+                5. Accessibility considerations
+                
+                Keep suggestions concise and actionable.`
+              }],
+              temperature: 0.5
+            });
+            
+            // Only post if there are meaningful suggestions
+            const suggestionText = suggestions.choices[0].message.content;
+            if (suggestionText && suggestionText.length > 100) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body: `## 💡 AI Improvement Suggestions\n\n${suggestionText}\n\n---\n*These are automated suggestions to help improve code quality.*`
+              });
+            }

@@ -1,0 +1,251 @@
+name: AI-Powered PR Creation
+
+on:
+  workflow_dispatch:
+    inputs:
+      task_description:
+        description: 'Task for Claude Code to implement'
+        required: true
+        type: string
+      branch_name:
+        description: 'Branch name for the PR'
+        required: false
+        type: string
+      priority:
+        description: 'Task priority'
+        required: false
+        type: choice
+        options:
+          - high
+          - medium
+          - low
+        default: medium
+  issues:
+    types: [labeled]
+
+env:
+  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  ai-implementation:
+    if: |
+      github.event_name == 'workflow_dispatch' || 
+      (github.event_name == 'issues' && contains(github.event.label.name, 'ai-implement'))
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Setup Claude Code CLI
+        run: |
+          # Install Claude Code CLI (when available)
+          # For now, we'll use the API directly
+          npm install -g @anthropic-ai/sdk
+          
+      - name: Extract Task Details
+        id: task
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "description=${{ github.event.inputs.task_description }}" >> $GITHUB_OUTPUT
+            echo "branch=${{ github.event.inputs.branch_name || format('ai/{0}-{1}', github.run_number, github.run_id) }}" >> $GITHUB_OUTPUT
+          else
+            # Extract from issue
+            ISSUE_BODY=$(gh issue view ${{ github.event.issue.number }} --json body -q '.body')
+            echo "description=$ISSUE_BODY" >> $GITHUB_OUTPUT
+            echo "branch=ai/issue-${{ github.event.issue.number }}-$(date +%s)" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Create Working Branch
+        run: |
+          git config --global user.name "Claude Code[bot]"
+          git config --global user.email "claude-code[bot]@users.noreply.github.com"
+          git checkout -b ${{ steps.task.outputs.branch }}
+          
+      - name: AI Implementation
+        id: implementation
+        run: |
+          # Create implementation script
+          cat > ai-implement.js << 'EOF'
+          const { Anthropic } = require('@anthropic-ai/sdk');
+          const fs = require('fs');
+          const path = require('path');
+          const { execSync } = require('child_process');
+          
+          const anthropic = new Anthropic({
+            apiKey: process.env.ANTHROPIC_API_KEY,
+          });
+          
+          async function implementTask() {
+            const taskDescription = process.env.TASK_DESCRIPTION;
+            const codebaseContext = await analyzeCodebase();
+            
+            const prompt = `
+          You are Claude Code, an expert software engineer.
+          
+          Task: ${taskDescription}
+          
+          Codebase Context:
+          ${codebaseContext}
+          
+          Please implement this task following these guidelines:
+          1. Write clean, maintainable code
+          2. Follow existing code patterns and conventions
+          3. Include appropriate tests
+          4. Update documentation as needed
+          5. Ensure TypeScript types are correct
+          
+          Provide a structured response with:
+          - Summary of changes
+          - Files to create/modify with content
+          - Tests to add
+          - Documentation updates
+          `;
+            
+            const response = await anthropic.messages.create({
+              model: 'claude-3-opus-20240229',
+              max_tokens: 8000,
+              messages: [{ role: 'user', content: prompt }],
+            });
+            
+            return response.content[0].text;
+          }
+          
+          async function analyzeCodebase() {
+            // Analyze project structure
+            const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            const tsConfig = fs.existsSync('tsconfig.json') 
+              ? JSON.parse(fs.readFileSync('tsconfig.json', 'utf8'))
+              : null;
+            
+            // Get file structure
+            const structure = execSync('find . -type f -name "*.ts" -o -name "*.tsx" | grep -v node_modules | head -50').toString();
+            
+            return JSON.stringify({
+              dependencies: Object.keys(packageJson.dependencies || {}),
+              devDependencies: Object.keys(packageJson.devDependencies || {}),
+              scripts: packageJson.scripts,
+              tsConfig: tsConfig?.compilerOptions,
+              structure: structure.split('\n').filter(Boolean),
+            }, null, 2);
+          }
+          
+          implementTask()
+            .then(result => {
+              fs.writeFileSync('ai-implementation-plan.json', JSON.stringify({ result }, null, 2));
+              console.log('Implementation plan created');
+            })
+            .catch(console.error);
+          EOF
+          
+          TASK_DESCRIPTION="${{ steps.task.outputs.description }}" node ai-implement.js
+          
+      - name: Apply AI Changes
+        run: |
+          # Parse and apply the implementation plan
+          node -e "
+          const fs = require('fs');
+          const plan = JSON.parse(fs.readFileSync('ai-implementation-plan.json', 'utf8'));
+          
+          // Extract file changes from AI response
+          // This is a simplified version - in production, use more sophisticated parsing
+          const changes = plan.result.match(/```[\\w]*\\n([\\s\\S]*?)```/g) || [];
+          
+          changes.forEach((change, index) => {
+            const content = change.replace(/```[\\w]*\\n/, '').replace(/```$/, '');
+            // Implement logic to determine file paths and apply changes
+            // For now, save as example files
+            fs.writeFileSync(`change-${index}.txt`, content);
+          });
+          "
+          
+      - name: Run Tests
+        run: |
+          npm test || echo "Tests need attention"
+          
+      - name: Commit Changes
+        run: |
+          git add -A
+          git commit -m "feat: AI implementation of task
+
+          Task: ${{ steps.task.outputs.description }}
+          
+          Implemented by Claude Code
+          Run ID: ${{ github.run_id }}
+          
+          Co-authored-by: Claude <claude-code[bot]@users.noreply.github.com>"
+          
+      - name: Push Branch
+        run: |
+          git push origin ${{ steps.task.outputs.branch }}
+          
+      - name: Create Pull Request
+        id: pr
+        run: |
+          PR_BODY=$(cat << 'EOF'
+          ## 🤖 AI-Generated Implementation
+          
+          This PR was automatically created by Claude Code based on the following task:
+          
+          **Task Description:**
+          ${{ steps.task.outputs.description }}
+          
+          ### Changes Made
+          
+          - [ ] Implementation completed
+          - [ ] Tests added/updated
+          - [ ] Documentation updated
+          - [ ] TypeScript types verified
+          
+          ### AI Implementation Summary
+          
+          <details>
+          <summary>View AI reasoning</summary>
+          
+          ```
+          See ai-implementation-plan.json for details
+          ```
+          
+          </details>
+          
+          ### Testing
+          
+          - [ ] All tests pass
+          - [ ] Manual testing completed
+          - [ ] Performance impact assessed
+          
+          ### Related Issues
+          
+          ${{ github.event_name == 'issues' && format('Closes #{0}', github.event.issue.number) || 'N/A' }}
+          
+          ---
+          
+          *This PR was generated by Claude Code AI. Please review carefully before merging.*
+          EOF
+          )
+          
+          PR_URL=$(gh pr create \
+            --title "AI: ${{ steps.task.outputs.description }}" \
+            --body "$PR_BODY" \
+            --base main \
+            --head ${{ steps.task.outputs.branch }} \
+            --label "ai-generated" \
+            --label "needs-review")
+            
+          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
+          
+      - name: Request AI Review
+        run: |
+          gh workflow run ai-pr-reviewer.yml \
+            -f pr_number=$(echo ${{ steps.pr.outputs.pr_url }} | grep -oE '[0-9]+$') \
+            -f review_type=comprehensive
+            
+      - name: Update Issue
+        if: github.event_name == 'issues'
+        run: |
+          gh issue comment ${{ github.event.issue.number }} \
+            --body "🤖 Claude Code has created a PR for this issue: ${{ steps.pr.outputs.pr_url }}"

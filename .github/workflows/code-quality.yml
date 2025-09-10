@@ -1,0 +1,365 @@
+name: Code Quality
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  checks: write
+
+jobs:
+  sonarcloud:
+    name: SonarCloud Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests with coverage
+        run: npm run test:coverage
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  code-complexity:
+    name: Code Complexity Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Calculate cyclomatic complexity
+        run: |
+          npx complexity-report --format json --output complexity-report.json \
+            'core/src/**/*.{ts,tsx}' \
+            'remix/app/**/*.{ts,tsx}' \
+            'next/src/**/*.{ts,tsx}' \
+            'shared/src/**/*.{ts,tsx}'
+
+      - name: Analyze complexity
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = JSON.parse(fs.readFileSync('complexity-report.json', 'utf8'));
+            
+            let comment = '## 📊 Complexity Report\n\n';
+            comment += '| File | Complexity | Maintainability | Status |\n';
+            comment += '|------|------------|-----------------|--------|\n';
+            
+            const issues = [];
+            report.reports.forEach(file => {
+              const complexity = file.aggregate.cyclomatic;
+              const maintainability = file.maintainability;
+              let status = '✅';
+              
+              if (complexity > 10) status = '⚠️';
+              if (complexity > 20) status = '❌';
+              
+              if (status !== '✅') {
+                issues.push({ file: file.path, complexity, maintainability });
+              }
+              
+              comment += `| ${file.path} | ${complexity} | ${maintainability.toFixed(2)} | ${status} |\n`;
+            });
+            
+            if (issues.length > 0) {
+              comment += '\n### ⚠️ Files with high complexity:\n';
+              issues.forEach(issue => {
+                comment += `- **${issue.file}**: Complexity ${issue.complexity}\n`;
+              });
+            }
+            
+            if (context.eventName === 'pull_request') {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: comment
+              });
+            }
+
+  duplication-check:
+    name: Code Duplication
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+          cache: 'npm'
+
+      - name: Check for duplicates
+        run: |
+          npx jscpd . \
+            --min-lines 5 \
+            --min-tokens 50 \
+            --reporters "json,console" \
+            --output . \
+            --ignore "**/*.test.{ts,tsx},**/node_modules/**,**/dist/**,**/.next/**"
+
+      - name: Upload duplication report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: duplication-report
+          path: jscpd-report.json
+
+  accessibility:
+    name: Accessibility Check
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        framework: [core, remix, next]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build ${{ matrix.framework }}
+        run: npm run build:${{ matrix.framework }}
+
+      - name: Run accessibility tests
+        run: |
+          npx start-server-and-test \
+            "npm run preview:${{ matrix.framework }}" \
+            http://localhost:3000 \
+            "npx pa11y-ci --config .pa11yci.json"
+
+  bundle-analysis:
+    name: Bundle Size Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and analyze bundles
+        run: |
+          # Build with stats
+          npm run build:all -- --stats
+          
+          # Analyze bundle sizes
+          npx webpack-bundle-analyzer core/dist/stats.json -m json -r bundle-analysis-core.json
+          npx webpack-bundle-analyzer remix/build/stats.json -m json -r bundle-analysis-remix.json
+          npx webpack-bundle-analyzer next/.next/stats.json -m json -r bundle-analysis-next.json
+
+      - name: Generate bundle report
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            
+            const analyzeBundle = (name, file) => {
+              const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+              const totalSize = data.reduce((acc, chunk) => acc + chunk.parsedSize, 0);
+              const largestChunks = data
+                .sort((a, b) => b.parsedSize - a.parsedSize)
+                .slice(0, 5)
+                .map(chunk => ({
+                  name: chunk.label,
+                  size: (chunk.parsedSize / 1024).toFixed(2) + ' KB'
+                }));
+              
+              return { name, totalSize, largestChunks };
+            };
+            
+            const bundles = [
+              analyzeBundle('Core', 'bundle-analysis-core.json'),
+              analyzeBundle('Remix', 'bundle-analysis-remix.json'),
+              analyzeBundle('Next.js', 'bundle-analysis-next.json')
+            ];
+            
+            let comment = '## 📦 Bundle Size Analysis\n\n';
+            comment += '| Framework | Total Size | Status |\n';
+            comment += '|-----------|------------|--------|\n';
+            
+            bundles.forEach(bundle => {
+              const sizeInKB = (bundle.totalSize / 1024).toFixed(2);
+              const status = bundle.totalSize > 500 * 1024 ? '⚠️ Large' : '✅ OK';
+              comment += `| ${bundle.name} | ${sizeInKB} KB | ${status} |\n`;
+            });
+            
+            comment += '\n### Largest Chunks\n\n';
+            bundles.forEach(bundle => {
+              comment += `\n**${bundle.name}:**\n`;
+              bundle.largestChunks.forEach(chunk => {
+                comment += `- ${chunk.name}: ${chunk.size}\n`;
+              });
+            });
+            
+            if (context.eventName === 'pull_request') {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: comment
+              });
+            }
+
+  performance-budget:
+    name: Performance Budget Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build production bundles
+        run: npm run build:all
+
+      - name: Check performance budgets
+        run: |
+          cat > .budgets.json << EOF
+          {
+            "budgets": [
+              {
+                "path": "core/dist/**/*.js",
+                "resourceSizes": [
+                  {
+                    "resourceType": "script",
+                    "budget": 150
+                  }
+                ],
+                "resourceCounts": [
+                  {
+                    "resourceType": "script",
+                    "budget": 10
+                  }
+                ]
+              },
+              {
+                "path": "remix/build/**/*.js",
+                "resourceSizes": [
+                  {
+                    "resourceType": "script",
+                    "budget": 200
+                  }
+                ]
+              },
+              {
+                "path": "next/.next/**/*.js",
+                "resourceSizes": [
+                  {
+                    "resourceType": "script",
+                    "budget": 200
+                  }
+                ]
+              }
+            ]
+          }
+          EOF
+          
+          npx bundlesize
+
+  documentation-coverage:
+    name: Documentation Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check documentation coverage
+        run: |
+          npx documentation coverage \
+            'core/src/**/*.{ts,tsx}' \
+            'shared/src/**/*.{ts,tsx}' \
+            --shallow
+
+      - name: Generate API docs
+        run: |
+          npx typedoc \
+            --out docs/api \
+            --exclude '**/node_modules/**' \
+            --exclude '**/*.test.{ts,tsx}' \
+            core/src/index.ts \
+            shared/src/index.ts
+
+  quality-report:
+    name: Quality Summary
+    runs-on: ubuntu-latest
+    needs: [sonarcloud, code-complexity, duplication-check, bundle-analysis]
+    if: always()
+    steps:
+      - name: Generate Quality Report
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const report = `## 🎯 Code Quality Summary
+            
+            | Check | Status |
+            |-------|--------|
+            | SonarCloud | ${{ needs.sonarcloud.result }} |
+            | Complexity | ${{ needs.code-complexity.result }} |
+            | Duplication | ${{ needs.duplication-check.result }} |
+            | Bundle Size | ${{ needs.bundle-analysis.result }} |
+            
+            View detailed reports in the workflow artifacts.
+            `;
+            
+            if (context.eventName === 'pull_request') {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: report
+              });
+            }

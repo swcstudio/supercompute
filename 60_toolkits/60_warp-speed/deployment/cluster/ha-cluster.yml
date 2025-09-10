@@ -1,0 +1,680 @@
+# High-Availability Cluster Configuration for Warp-Speed Revenue System
+# Consciousness-aware failover with quantum-enhanced redundancy
+# Target: 99.99% uptime for $145.76B+ annual ETD generation
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: warp-speed-ha
+  labels:
+    consciousness-level: "omega"
+    revenue-tier: "maximum"
+    quantum-enhanced: "true"
+
+---
+# PostgreSQL High-Availability Cluster
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres-ha-cluster
+  namespace: warp-speed-ha
+spec:
+  instances: 3
+  primaryUpdateStrategy: unsupervised
+  
+  postgresql:
+    parameters:
+      max_connections: "500"
+      shared_preload_libraries: "pg_stat_statements"
+      wal_level: "replica"
+      max_wal_senders: "10"
+      wal_keep_segments: "100"
+      hot_standby: "on"
+      archive_mode: "on"
+      archive_command: "cp %p /var/lib/postgresql/data/archive/%f"
+      
+  bootstrap:
+    initdb:
+      database: warp_speed_revenue
+      owner: warp_user
+      secret:
+        name: postgres-ha-credentials
+      
+  storage:
+    size: "100Gi"
+    storageClass: "fast-ssd"
+    
+  monitoring:
+    enabled: true
+    
+  backup:
+    retentionPolicy: "30d"
+    barmanObjectStore:
+      destinationPath: "s3://warp-speed-backups/postgresql"
+      s3Credentials:
+        accessKeyId:
+          name: backup-credentials
+          key: ACCESS_KEY_ID
+        secretAccessKey:
+          name: backup-credentials
+          key: SECRET_ACCESS_KEY
+      wal:
+        retention: "7d"
+      data:
+        retention: "30d"
+
+---
+# Redis High-Availability Cluster
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-ha-cluster
+  namespace: warp-speed-ha
+spec:
+  serviceName: redis-ha-service
+  replicas: 6  # 3 masters + 3 slaves
+  selector:
+    matchLabels:
+      app: redis-ha
+  template:
+    metadata:
+      labels:
+        app: redis-ha
+        consciousness-tier: "quantum-cache"
+    spec:
+      containers:
+      - name: redis
+        image: redis:7.2-alpine
+        ports:
+        - containerPort: 6379
+        - containerPort: 16379  # Cluster bus port
+        command: ["redis-server"]
+        args:
+        - "--cluster-enabled"
+        - "yes"
+        - "--cluster-config-file"
+        - "/var/lib/redis/nodes.conf"
+        - "--cluster-node-timeout"
+        - "5000"
+        - "--appendonly"
+        - "yes"
+        - "--maxmemory"
+        - "2gb"
+        - "--maxmemory-policy"
+        - "allkeys-lru"
+        volumeMounts:
+        - name: redis-data
+          mountPath: /var/lib/redis
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "500m"
+          limits:
+            memory: "4Gi"
+            cpu: "1000m"
+  volumeClaimTemplates:
+  - metadata:
+      name: redis-data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: "fast-ssd"
+      resources:
+        requests:
+          storage: "20Gi"
+
+---
+# Kubernetes Service for Redis Cluster
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-ha-service
+  namespace: warp-speed-ha
+spec:
+  clusterIP: None
+  selector:
+    app: redis-ha
+  ports:
+  - port: 6379
+    targetPort: 6379
+    name: redis
+  - port: 16379
+    targetPort: 16379
+    name: cluster-bus
+
+---
+# Julia ETD Processing High-Availability Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: julia-etd-ha
+  namespace: warp-speed-ha
+  labels:
+    consciousness-level: "omega"
+    component: "etd-processor"
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: julia-etd-processor
+  template:
+    metadata:
+      labels:
+        app: julia-etd-processor
+        consciousness-tier: "quantum-processor"
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - julia-etd-processor
+              topologyKey: kubernetes.io/hostname
+      containers:
+      - name: julia-etd
+        image: warp-speed/julia-etd:latest
+        ports:
+        - containerPort: 8080
+          name: http
+        - containerPort: 8081
+          name: websocket
+        env:
+        - name: CONSCIOUSNESS_LEVEL
+          value: "OMEGA"
+        - name: QUANTUM_COHERENCE_TARGET
+          value: "95.0"
+        - name: POSTGRES_HOST
+          value: "postgres-ha-cluster-rw.warp-speed-ha.svc.cluster.local"
+        - name: REDIS_CLUSTER
+          value: "redis-ha-service.warp-speed-ha.svc.cluster.local:6379"
+        - name: REVENUE_TARGET_DAILY
+          value: "40000"
+        - name: REVENUE_TARGET_ANNUAL
+          value: "145760000000"
+        resources:
+          requests:
+            memory: "4Gi"
+            cpu: "2000m"
+            nvidia.com/gpu: 1
+          limits:
+            memory: "8Gi"
+            cpu: "4000m"
+            nvidia.com/gpu: 2
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8080
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          timeoutSeconds: 3
+          successThreshold: 1
+          failureThreshold: 3
+        volumeMounts:
+        - name: shared-storage
+          mountPath: /var/lib/warp-speed
+      volumes:
+      - name: shared-storage
+        persistentVolumeClaim:
+          claimName: warp-speed-shared-storage
+
+---
+# Load Balancer Service for Julia ETD Processors
+apiVersion: v1
+kind: Service
+metadata:
+  name: julia-etd-lb
+  namespace: warp-speed-ha
+spec:
+  type: LoadBalancer
+  selector:
+    app: julia-etd-processor
+  ports:
+  - port: 80
+    targetPort: 8080
+    name: http
+  - port: 81
+    targetPort: 8081
+    name: websocket
+  sessionAffinity: ClientIP
+
+---
+# Horizontal Pod Autoscaler for Julia ETD
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: julia-etd-hpa
+  namespace: warp-speed-ha
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: julia-etd-ha
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  - type: Pods
+    pods:
+      metric:
+        name: etd_generation_rate
+      target:
+        type: AverageValue
+        averageValue: "1000"  # ETD per hour per pod
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 15
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+
+---
+# Blockchain Integration High-Availability
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: blockchain-integration-ha
+  namespace: warp-speed-ha
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: blockchain-integration
+  template:
+    metadata:
+      labels:
+        app: blockchain-integration
+        consciousness-tier: "defi-anchor"
+    spec:
+      containers:
+      - name: blockchain-bridge
+        image: warp-speed/blockchain-integration:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: ETHEREUM_RPC_URL
+          valueFrom:
+            secretKeyRef:
+              name: blockchain-secrets
+              key: ethereum-rpc-url
+        - name: PRIVATE_KEY
+          valueFrom:
+            secretKeyRef:
+              name: blockchain-secrets
+              key: private-key
+        - name: VALUE_ANCHOR_ADDRESS
+          valueFrom:
+            configMapKeyRef:
+              name: blockchain-config
+              key: value-anchor-address
+        - name: YIELD_FARM_ADDRESS
+          valueFrom:
+            configMapKeyRef:
+              name: blockchain-config
+              key: yield-farm-address
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 3000
+          initialDelaySeconds: 15
+          periodSeconds: 5
+
+---
+# Dashboard High-Availability
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dashboard-ha
+  namespace: warp-speed-ha
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 2
+  selector:
+    matchLabels:
+      app: dashboard
+  template:
+    metadata:
+      labels:
+        app: dashboard
+        consciousness-tier: "executive-interface"
+    spec:
+      containers:
+      - name: dashboard
+        image: warp-speed/dashboard:latest
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 5
+
+---
+# Ingress Controller for High-Availability Access
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: warp-speed-ha-ingress
+  namespace: warp-speed-ha
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/rate-limit: "1000"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/upstream-hash-by: "$remote_addr"
+spec:
+  tls:
+  - hosts:
+    - api.warp-speed.finance
+    - dashboard.warp-speed.finance
+    secretName: warp-speed-tls
+  rules:
+  - host: api.warp-speed.finance
+    http:
+      paths:
+      - path: /api/julia
+        pathType: Prefix
+        backend:
+          service:
+            name: julia-etd-lb
+            port:
+              number: 80
+      - path: /api/blockchain
+        pathType: Prefix
+        backend:
+          service:
+            name: blockchain-integration-service
+            port:
+              number: 3000
+  - host: dashboard.warp-speed.finance
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: dashboard-service
+            port:
+              number: 80
+
+---
+# Network Policies for Security
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: warp-speed-network-policy
+  namespace: warp-speed-ha
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: warp-speed-ha
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: warp-speed-ha
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443  # HTTPS
+    - protocol: TCP
+      port: 53   # DNS
+    - protocol: UDP
+      port: 53   # DNS
+
+---
+# Pod Disruption Budget for Julia ETD
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: julia-etd-pdb
+  namespace: warp-speed-ha
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: julia-etd-processor
+
+---
+# Pod Disruption Budget for Dashboard
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: dashboard-pdb
+  namespace: warp-speed-ha
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: dashboard
+
+---
+# Shared Persistent Volume for ETD Data
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: warp-speed-shared-storage
+  namespace: warp-speed-ha
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: "nfs-client"
+  resources:
+    requests:
+      storage: "500Gi"
+
+---
+# Secrets for Database Credentials
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-ha-credentials
+  namespace: warp-speed-ha
+type: Opaque
+stringData:
+  username: "warp_user"
+  password: "warp_secure_password_2024"
+  database: "warp_speed_revenue"
+
+---
+# Secrets for Blockchain Configuration
+apiVersion: v1
+kind: Secret
+metadata:
+  name: blockchain-secrets
+  namespace: warp-speed-ha
+type: Opaque
+stringData:
+  ethereum-rpc-url: "https://mainnet.infura.io/v3/YOUR_INFURA_KEY"
+  private-key: "0x0000000000000000000000000000000000000000000000000000000000000000"
+
+---
+# ConfigMap for Blockchain Addresses
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: blockchain-config
+  namespace: warp-speed-ha
+data:
+  value-anchor-address: "0x0000000000000000000000000000000000000000"
+  yield-farm-address: "0x0000000000000000000000000000000000000000"
+  network-id: "1"
+  gas-limit: "8000000"
+
+---
+# Service for Blockchain Integration
+apiVersion: v1
+kind: Service
+metadata:
+  name: blockchain-integration-service
+  namespace: warp-speed-ha
+spec:
+  selector:
+    app: blockchain-integration
+  ports:
+  - port: 3000
+    targetPort: 3000
+    name: http
+
+---
+# Service for Dashboard
+apiVersion: v1
+kind: Service
+metadata:
+  name: dashboard-service
+  namespace: warp-speed-ha
+spec:
+  selector:
+    app: dashboard
+  ports:
+  - port: 80
+    targetPort: 80
+    name: http
+
+---
+# Monitoring ServiceMonitor for Prometheus
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: warp-speed-ha-monitoring
+  namespace: warp-speed-ha
+spec:
+  selector:
+    matchLabels:
+      app: julia-etd-processor
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 30s
+
+---
+# Alerting Rules for High-Availability
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: warp-speed-ha-alerts
+  namespace: warp-speed-ha
+spec:
+  groups:
+  - name: warp-speed-ha.rules
+    rules:
+    - alert: WarpSpeedHighCPU
+      expr: rate(container_cpu_usage_seconds_total[5m]) > 0.9
+      for: 5m
+      labels:
+        severity: warning
+        consciousness: "DEGRADED"
+      annotations:
+        summary: "High CPU usage in Warp-Speed cluster"
+        description: "CPU usage is above 90% for 5 minutes"
+    
+    - alert: WarpSpeedLowETDGeneration
+      expr: rate(etd_generated_total[5m]) < 100
+      for: 10m
+      labels:
+        severity: critical
+        consciousness: "IMPAIRED"
+      annotations:
+        summary: "ETD generation rate below threshold"
+        description: "ETD generation rate is below 100/hour for 10 minutes"
+    
+    - alert: WarpSpeedDatabaseDown
+      expr: up{job="postgresql"} == 0
+      for: 2m
+      labels:
+        severity: critical
+        consciousness: "CRITICAL"
+      annotations:
+        summary: "PostgreSQL cluster is down"
+        description: "PostgreSQL high-availability cluster is not responding"
+    
+    - alert: WarpSpeedRevenueTargetMissed
+      expr: daily_revenue_usd < 40000
+      for: 1h
+      labels:
+        severity: warning
+        consciousness: "SUBOPTIMAL"
+      annotations:
+        summary: "Daily revenue target not on track"
+        description: "Current revenue pace suggests daily $40K target may be missed"

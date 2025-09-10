@@ -1,0 +1,405 @@
+name: Documentation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - '**/*.md'
+      - 'core/src/**'
+      - 'remix/app/**'
+      - 'next/src/**'
+      - 'shared/src/**'
+  pull_request:
+    paths:
+      - 'docs/**'
+      - '**/*.md'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  api-docs:
+    name: Generate API Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate TypeDoc
+        run: |
+          npx typedoc \
+            --out docs/api \
+            --name "Katalyst React API" \
+            --readme none \
+            --excludePrivate \
+            --excludeInternal \
+            --plugin typedoc-plugin-markdown \
+            --theme markdown \
+            core/src/index.ts \
+            remix/app/root.tsx \
+            next/src/app/page.tsx \
+            shared/src/index.ts
+
+      - name: Generate component documentation
+        run: |
+          npx react-docgen \
+            core/src/components/**/*.tsx \
+            shared/src/components/**/*.tsx \
+            --pretty \
+            -o docs/components.json
+          
+          # Convert to markdown
+          node -e "
+            const fs = require('fs');
+            const components = require('./docs/components.json');
+            let md = '# Component Documentation\\n\\n';
+            
+            Object.entries(components).forEach(([path, component]) => {
+              md += \`## \${component.displayName || 'Unknown'}\\n\\n\`;
+              md += \`**Path:** \${path}\\n\\n\`;
+              if (component.description) md += \`\${component.description}\\n\\n\`;
+              
+              if (component.props) {
+                md += '### Props\\n\\n';
+                md += '| Name | Type | Required | Default | Description |\\n';
+                md += '|------|------|----------|---------|-------------|\\n';
+                
+                Object.entries(component.props).forEach(([name, prop]) => {
+                  md += \`| \${name} | \${prop.type?.name || 'any'} | \${prop.required ? 'Yes' : 'No'} | \${prop.defaultValue?.value || '-'} | \${prop.description || '-'} |\\n\`;
+                });
+                md += '\\n';
+              }
+            });
+            
+            fs.writeFileSync('docs/components.md', md);
+          "
+
+      - name: Upload API docs
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-documentation
+          path: docs/api/
+
+  storybook-docs:
+    name: Build Storybook Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Storybook
+        run: npm run build-storybook -- --docs
+
+      - name: Upload Storybook docs
+        uses: actions/upload-artifact@v4
+        with:
+          name: storybook-documentation
+          path: storybook-static/
+
+  markdown-docs:
+    name: Process Markdown Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+
+      - name: Install documentation tools
+        run: |
+          npm install -g @doctoc/doctoc markdownlint-cli markdown-link-check
+
+      - name: Generate table of contents
+        run: |
+          # Add TOC to all markdown files
+          find . -name "*.md" -not -path "./node_modules/*" -exec doctoc {} \;
+
+      - name: Lint markdown files
+        run: |
+          markdownlint '**/*.md' --ignore node_modules --fix
+
+      - name: Check markdown links
+        run: |
+          find . -name "*.md" -not -path "./node_modules/*" -exec markdown-link-check {} \;
+
+      - name: Create documentation index
+        run: |
+          cat > docs/index.md << 'EOF'
+          # Katalyst React Documentation
+          
+          ## Getting Started
+          - [Installation](./installation.md)
+          - [Quick Start](./quick-start.md)
+          - [Configuration](./configuration.md)
+          
+          ## Frameworks
+          - [Core Framework](./frameworks/core.md)
+          - [Remix Integration](./frameworks/remix.md)
+          - [Next.js Integration](./frameworks/nextjs.md)
+          
+          ## API Reference
+          - [Components](./api/components/index.html)
+          - [Hooks](./api/hooks/index.html)
+          - [Utilities](./api/utilities/index.html)
+          
+          ## Guides
+          - [State Management](./guides/state-management.md)
+          - [Routing](./guides/routing.md)
+          - [Styling](./guides/styling.md)
+          - [Testing](./guides/testing.md)
+          - [Performance](./guides/performance.md)
+          - [Security](./guides/security.md)
+          
+          ## Examples
+          - [Basic Examples](./examples/basic.md)
+          - [Advanced Examples](./examples/advanced.md)
+          - [Real World Apps](./examples/real-world.md)
+          
+          ## Contributing
+          - [Development Setup](./contributing/setup.md)
+          - [Code Style](./contributing/code-style.md)
+          - [Testing Guidelines](./contributing/testing.md)
+          - [Pull Request Process](./contributing/pull-requests.md)
+          EOF
+
+  docusaurus:
+    name: Build Docusaurus Site
+    runs-on: ubuntu-latest
+    needs: [api-docs, storybook-docs, markdown-docs]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download documentation artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: docs-artifacts/
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+
+      - name: Initialize Docusaurus
+        run: |
+          npx create-docusaurus@latest docs-site classic --typescript
+          
+          # Copy documentation
+          cp -r docs-artifacts/api-documentation/* docs-site/docs/api/
+          cp -r docs-artifacts/storybook-documentation/* docs-site/static/storybook/
+          
+          # Configure Docusaurus
+          cat > docs-site/docusaurus.config.js << 'EOF'
+          module.exports = {
+            title: 'Katalyst React',
+            tagline: 'Modern React Framework for Production',
+            url: 'https://katalyst-react.dev',
+            baseUrl: '/',
+            onBrokenLinks: 'throw',
+            onBrokenMarkdownLinks: 'warn',
+            favicon: 'img/favicon.ico',
+            organizationName: 'swcstudio',
+            projectName: 'katalyst-react',
+            
+            presets: [
+              [
+                'classic',
+                {
+                  docs: {
+                    sidebarPath: require.resolve('./sidebars.js'),
+                    editUrl: 'https://github.com/swcstudio/katalyst-react/tree/main/docs/',
+                  },
+                  blog: {
+                    showReadingTime: true,
+                    editUrl: 'https://github.com/swcstudio/katalyst-react/tree/main/blog/',
+                  },
+                  theme: {
+                    customCss: require.resolve('./src/css/custom.css'),
+                  },
+                },
+              ],
+            ],
+            
+            themeConfig: {
+              navbar: {
+                title: 'Katalyst React',
+                items: [
+                  {
+                    type: 'doc',
+                    docId: 'intro',
+                    position: 'left',
+                    label: 'Docs',
+                  },
+                  {
+                    to: '/api',
+                    label: 'API',
+                    position: 'left',
+                  },
+                  {
+                    href: '/storybook',
+                    label: 'Storybook',
+                    position: 'left',
+                  },
+                  {
+                    href: 'https://github.com/swcstudio/katalyst-react',
+                    label: 'GitHub',
+                    position: 'right',
+                  },
+                ],
+              },
+              footer: {
+                style: 'dark',
+                links: [
+                  {
+                    title: 'Docs',
+                    items: [
+                      {
+                        label: 'Getting Started',
+                        to: '/docs/intro',
+                      },
+                      {
+                        label: 'API Reference',
+                        to: '/api',
+                      },
+                    ],
+                  },
+                  {
+                    title: 'Community',
+                    items: [
+                      {
+                        label: 'Discord',
+                        href: 'https://discord.gg/katalyst-react',
+                      },
+                      {
+                        label: 'Twitter',
+                        href: 'https://twitter.com/katalyst_react',
+                      },
+                    ],
+                  },
+                ],
+                copyright: \`Copyright © \${new Date().getFullYear()} Katalyst React. Built with Docusaurus.\`,
+              },
+              prism: {
+                theme: require('prism-react-renderer/themes/github'),
+                darkTheme: require('prism-react-renderer/themes/dracula'),
+              },
+            },
+          };
+          EOF
+
+      - name: Build documentation site
+        run: |
+          cd docs-site
+          npm install
+          npm run build
+
+      - name: Upload documentation site
+        uses: actions/upload-artifact@v4
+        with:
+          name: documentation-site
+          path: docs-site/build/
+
+  deploy-docs:
+    name: Deploy Documentation
+    runs-on: ubuntu-latest
+    needs: docusaurus
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download documentation site
+        uses: actions/download-artifact@v4
+        with:
+          name: documentation-site
+          path: ./docs-dist
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload to Pages
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./docs-dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+  check-docs-coverage:
+    name: Documentation Coverage
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check documentation coverage
+        run: |
+          # Check TypeScript documentation coverage
+          npx documentation coverage \
+            'core/src/**/*.{ts,tsx}' \
+            'shared/src/**/*.{ts,tsx}' \
+            --shallow \
+            --format json > doc-coverage.json
+
+      - name: Generate coverage report
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const coverage = JSON.parse(fs.readFileSync('doc-coverage.json', 'utf8'));
+            
+            const total = coverage.total || 0;
+            const documented = coverage.documented || 0;
+            const percentage = total > 0 ? (documented / total * 100).toFixed(2) : 0;
+            
+            let status = '✅';
+            if (percentage < 80) status = '⚠️';
+            if (percentage < 50) status = '❌';
+            
+            const comment = `## 📚 Documentation Coverage
+            
+            **Coverage:** ${percentage}% ${status}
+            - Total exports: ${total}
+            - Documented: ${documented}
+            - Missing: ${total - documented}
+            
+            ${percentage < 80 ? '⚠️ Please add documentation for undocumented exports.' : '✅ Good documentation coverage!'}
+            `;
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: comment
+            });

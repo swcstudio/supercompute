@@ -1,0 +1,357 @@
+name: AI Implementation
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to implement'
+        required: true
+        type: number
+      implementation_strategy:
+        description: 'Implementation strategy'
+        required: true
+        default: 'automated'
+        type: choice
+        options:
+          - automated
+          - guided
+          - review-first
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  prepare-implementation:
+    name: Prepare Implementation
+    runs-on: ubuntu-latest
+    outputs:
+      branch_name: ${{ steps.branch.outputs.name }}
+      implementation_plan: ${{ steps.plan.outputs.plan }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create implementation branch
+        id: branch
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = ${{ github.event.inputs.issue_number }};
+            
+            // Get issue details
+            const { data: issue } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber
+            });
+            
+            // Create branch name
+            const branchName = `ai/issue-${issueNumber}-${issue.title.toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')
+              .substring(0, 40)}`;
+            
+            core.setOutput('name', branchName);
+            
+            // Create branch
+            const { data: ref } = await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'heads/main'
+            });
+            
+            await github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `refs/heads/${branchName}`,
+              sha: ref.object.sha
+            }).catch(e => {
+              if (e.status === 422) {
+                console.log('Branch already exists');
+              } else {
+                throw e;
+              }
+            });
+
+      - name: Generate implementation plan
+        id: plan
+        uses: actions/github-script@v7
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        with:
+          script: |
+            const OpenAI = require('openai');
+            const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+            
+            const issueNumber = ${{ github.event.inputs.issue_number }};
+            
+            // Get issue and previous analysis
+            const { data: issue } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber
+            });
+            
+            // Get previous AI analysis comments
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber
+            });
+            
+            const aiAnalysis = comments
+              .filter(c => c.body.includes('AI') && c.body.includes('Analysis'))
+              .map(c => c.body)
+              .join('\n\n');
+            
+            // Generate implementation plan
+            const plan = await openai.chat.completions.create({
+              model: "gpt-4",
+              messages: [{
+                role: "system",
+                content: `You are an expert software engineer creating a detailed implementation plan.
+                         Generate specific, actionable steps with exact file paths and code snippets.`
+              }, {
+                role: "user",
+                content: `Create a detailed implementation plan for this issue:
+                
+                Issue: ${issue.title}
+                Description: ${issue.body}
+                Previous Analysis: ${aiAnalysis}
+                
+                Provide:
+                1. File modifications needed (exact paths)
+                2. Code snippets for each modification
+                3. Test cases to add
+                4. Validation steps
+                5. Potential edge cases`
+              }],
+              temperature: 0.2,
+              response_format: { type: "json_object" }
+            });
+            
+            const planData = JSON.parse(plan.choices[0].message.content);
+            core.setOutput('plan', JSON.stringify(planData));
+            
+            return planData;
+
+  implement-changes:
+    name: Implement Changes
+    runs-on: ubuntu-latest
+    needs: prepare-implementation
+    strategy:
+      matrix:
+        task: [core-changes, tests, documentation]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-implementation.outputs.branch_name }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Implement ${{ matrix.task }}
+        uses: actions/github-script@v7
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        with:
+          script: |
+            const OpenAI = require('openai');
+            const fs = require('fs').promises;
+            const path = require('path');
+            
+            const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+            const plan = JSON.parse('${{ needs.prepare-implementation.outputs.implementation_plan }}');
+            const task = '${{ matrix.task }}';
+            
+            // Get task-specific items from plan
+            let taskItems = [];
+            switch (task) {
+              case 'core-changes':
+                taskItems = plan.file_modifications || [];
+                break;
+              case 'tests':
+                taskItems = plan.test_cases || [];
+                break;
+              case 'documentation':
+                taskItems = plan.documentation_updates || [];
+                break;
+            }
+            
+            // Implement each item
+            for (const item of taskItems) {
+              console.log(`Processing: ${item.file_path}`);
+              
+              // Read existing file if it exists
+              let existingContent = '';
+              try {
+                existingContent = await fs.readFile(item.file_path, 'utf8');
+              } catch (e) {
+                console.log('File does not exist, will create new');
+              }
+              
+              // Generate implementation
+              const implementation = await openai.chat.completions.create({
+                model: "gpt-4",
+                messages: [{
+                  role: "system",
+                  content: `You are implementing code changes. Generate only the code, no explanations.
+                           Maintain existing code style and conventions.`
+                }, {
+                  role: "user",
+                  content: `Implement this change:
+                  
+                  File: ${item.file_path}
+                  Change Description: ${item.description}
+                  Existing Content: ${existingContent}
+                  
+                  ${item.code_snippet ? `Suggested approach: ${item.code_snippet}` : ''}
+                  
+                  Return the complete updated file content.`
+                }],
+                temperature: 0.1
+              });
+              
+              const newContent = implementation.choices[0].message.content;
+              
+              // Ensure directory exists
+              await fs.mkdir(path.dirname(item.file_path), { recursive: true });
+              
+              // Write the file
+              await fs.writeFile(item.file_path, newContent);
+              
+              console.log(`Updated: ${item.file_path}`);
+            }
+
+      - name: Run tests
+        if: matrix.task == 'tests'
+        run: |
+          npm run test:unit
+          npm run test:integration
+
+      - name: Commit changes
+        run: |
+          git config --local user.email "ai-bot@katalyst-react.dev"
+          git config --local user.name "Katalyst AI Bot"
+          
+          git add -A
+          git diff --staged --quiet || git commit -m "feat: implement ${{ matrix.task }} for #${{ github.event.inputs.issue_number }}
+          
+          Automated implementation by AI assistant
+          Task: ${{ matrix.task }}
+          Strategy: ${{ github.event.inputs.implementation_strategy }}"
+          
+          git push origin ${{ needs.prepare-implementation.outputs.branch_name }}
+
+  create-pull-request:
+    name: Create Pull Request
+    runs-on: ubuntu-latest
+    needs: [prepare-implementation, implement-changes]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-implementation.outputs.branch_name }}
+
+      - name: Create PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = ${{ github.event.inputs.issue_number }};
+            const branchName = '${{ needs.prepare-implementation.outputs.branch_name }}';
+            const plan = JSON.parse('${{ needs.prepare-implementation.outputs.implementation_plan }}');
+            
+            // Get issue details
+            const { data: issue } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber
+            });
+            
+            // Create PR body
+            const prBody = `## 🤖 AI Implementation for #${issueNumber}
+            
+            This PR was automatically generated by the AI implementation system.
+            
+            ### 📋 Summary
+            ${plan.summary || 'Implemented requested changes as specified in the issue.'}
+            
+            ### 🔧 Changes Made
+            ${plan.file_modifications?.map(m => `- Modified \`${m.file_path}\`: ${m.description}`).join('\n') || 'See commits for details'}
+            
+            ### ✅ Testing
+            ${plan.test_cases?.map(t => `- Added test: ${t.description}`).join('\n') || 'Existing tests cover the changes'}
+            
+            ### 📚 Documentation
+            ${plan.documentation_updates?.map(d => `- Updated: ${d.description}`).join('\n') || 'No documentation changes needed'}
+            
+            ### 🔍 Validation Steps
+            ${plan.validation_steps?.map((v, i) => `${i + 1}. ${v}`).join('\n') || '1. Run tests\n2. Manual verification'}
+            
+            ### ⚠️ Potential Risks
+            ${plan.edge_cases?.map(e => `- ${e}`).join('\n') || 'No significant risks identified'}
+            
+            ### 🎯 Implementation Strategy
+            - Strategy: **${{ github.event.inputs.implementation_strategy }}**
+            - Confidence Level: **${plan.confidence_level || 'High'}**
+            
+            ---
+            
+            Closes #${issueNumber}
+            
+            ### Pre-merge Checklist
+            - [ ] All tests pass
+            - [ ] Code follows project conventions
+            - [ ] Documentation is updated
+            - [ ] No security vulnerabilities introduced
+            - [ ] Performance impact assessed
+            
+            ### Review Guidelines
+            Please pay special attention to:
+            1. Code correctness and edge cases
+            2. Test coverage
+            3. Performance implications
+            4. Security considerations`;
+            
+            // Create PR
+            const { data: pr } = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[AI] ${issue.title}`,
+              body: prBody,
+              head: branchName,
+              base: 'main',
+              draft: '${{ github.event.inputs.implementation_strategy }}' === 'review-first'
+            });
+            
+            // Link PR to issue
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: `🚀 AI Implementation PR created: #${pr.number}\n\nStrategy: **${{ github.event.inputs.implementation_strategy }}**\n\nPlease review the generated code and provide feedback.`
+            });
+            
+            // Add labels
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              labels: ['ai-generated', 'needs-review', `closes-#${issueNumber}`]
+            });
+            
+            // Request reviews from suggested reviewers
+            if (plan.suggested_reviewers?.length > 0) {
+              await github.rest.pulls.requestReviewers({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                reviewers: plan.suggested_reviewers
+              });
+            }

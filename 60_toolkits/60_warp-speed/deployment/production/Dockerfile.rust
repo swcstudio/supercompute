@@ -1,0 +1,42 @@
+# Multi-stage build for optimal production image
+FROM rust:1.75 as builder
+
+WORKDIR /usr/src/warp-speed
+
+# Copy manifests
+COPY warp-server/Cargo.toml warp-server/Cargo.lock ./
+
+# Build dependencies (cached layer)
+RUN mkdir src && echo "fn main() {}" > src/main.rs
+RUN cargo build --release
+RUN rm -rf src
+
+# Copy source code
+COPY warp-server/src ./src
+
+# Build the actual application
+RUN touch src/main.rs
+RUN cargo build --release
+
+# Production stage - minimal image
+FROM debian:bookworm-slim
+
+# Install SSL certificates and minimal runtime dependencies
+RUN apt-get update && \
+    apt-get install -y ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd -m -u 1000 warpspeed
+
+# Copy the binary from builder
+COPY --from=builder /usr/src/warp-speed/target/release/warp-speed-server /usr/local/bin/warp-speed-server
+
+# Set ownership
+RUN chown warpspeed:warpspeed /usr/local/bin/warp-speed-server
+
+USER warpspeed
+
+EXPOSE 8080
+
+CMD ["warp-speed-server"]

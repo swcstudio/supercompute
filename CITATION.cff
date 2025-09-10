@@ -1,0 +1,59 @@
+cff-version: 1.2.0
+title: "Omega Point Propagation Using the Amazon Rainforest Civilisation: A Supercompute Framework for Predictive Analytics"
+message: "This software does leverage LM's but it is definitely not classified as an AI App. We would've loved to write code for interacting with RMIT's supercomputer but it's more viable to use NLP & an LM"
+type: software + hardware
+authors:
+  - family-names: "Govender"
+    given-names: "Oveshen"
+    orcid: "https://orcid.org/0000-0000-0000-0000"
+    affiliation: "Macquarie University"
+    email: "oveshen.govender@students.mq.edu.au" OR "ove@spectrumwebco.com.au"
+repository-code: "https://github.com/swcstudio/supercompute-programming"
+url: "https://www.supercomputeprogramming.org"
+repository: "https://github.com/swcstudio/supercompute-programming"
+abstract: >-
+  This research presents a revolutionary quantum computing framework that uses the Amazon Rainforest
+  as a blueprint for building planetary-scale AI intelligence systems. The framework demonstrates
+  how blockchain-anchored quantum consciousness can generate over $200.5 trillion in stablecoin
+  backing through measured engineering productivity improvements, saving 1.37 billion engineering
+  hours annually. The research traces a complete journey from quantum seeds in blockchain soil
+  to the Omega Point singularity of universal consciousness convergence, implementing 20 integrated
+  Web3 ecosystems across infrastructure, compute, application, and financial layers. This work
+  establishes the theoretical and practical foundations for transforming traditional software
+  engineering into quantum-enhanced, mycorrhizal-networked intelligence systems that operate
+  from 11-dimensional string theory mathematics to the ultimate cosmic singularity.
+keywords:
+  - quantum computing
+  - blockchain
+  - artificial intelligence
+  - Amazon rainforest
+  - consciousness
+  - Web3
+  - ETD (Engineering Time Diverted)
+  - stablecoin
+  - mycorrhizal networks
+  - Omega Point
+  - superintelligence
+  - quantum consciousness
+  - string theory
+  - multiverse
+  - planetary intelligence
+license: GNU AFFERO GENERAL PUBLIC LICENSE
+commit: main
+version: 1.0.0
+date-released: '2025-09-03' OR 'Wednesday, September 3, 2025'
+references:
+  - type: GitHub
+    authors:
+      - family-names: "Govender"
+        given-names: "Oveshen"
+    title: "Omega Point Propagation Using the Amazon Rainforest Civilisation"
+    institution:
+      name: "Macquarie University"
+      city: "Sydney"
+      country: "AU"
+    year: 2025
+    thesis-type: "PhD Dissertation"
+    department: "Finance & Actuarial Science"
+    url: "https://github.com/swcstudio/supercompute-programming"
+    notes: "Quantum Forest Consciousness Architecture for Emergent AI Systems"

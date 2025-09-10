@@ -1,0 +1,343 @@
+name: Release Management
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: 'Release type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - prerelease
+      prerelease_id:
+        description: 'Prerelease identifier (alpha, beta, rc)'
+        required: false
+        default: 'alpha'
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+jobs:
+  prepare-release:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release_notes: ${{ steps.notes.outputs.release_notes }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            VERSION="${{ github.ref_name }}"
+          else
+            # Calculate next version based on input
+            CURRENT_VERSION=$(node -p "require('./package.json').version")
+            
+            case "${{ github.event.inputs.release_type }}" in
+              "major") NEW_VERSION=$(npx semver $CURRENT_VERSION -i major) ;;
+              "minor") NEW_VERSION=$(npx semver $CURRENT_VERSION -i minor) ;;
+              "patch") NEW_VERSION=$(npx semver $CURRENT_VERSION -i patch) ;;
+              "prerelease") NEW_VERSION=$(npx semver $CURRENT_VERSION -i prerelease --preid ${{ github.event.inputs.prerelease_id }}) ;;
+            esac
+            
+            VERSION="v$NEW_VERSION"
+          fi
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          # Generate changelog using conventional commits
+          npx conventional-changelog-cli -p angular -i CHANGELOG.md -s -r 0
+          
+          # Extract latest changes
+          NOTES=$(sed -n '/^##/,/^##/{/^##/!p;}' CHANGELOG.md | head -n -1)
+          
+          # Add additional sections
+          NOTES="$NOTES
+
+          ## 📊 Statistics
+          - Commits: $(git rev-list --count $(git describe --tags --abbrev=0)..HEAD)
+          - Contributors: $(git shortlog -sn --no-merges $(git describe --tags --abbrev=0)..HEAD | wc -l)
+          
+          ## 🔗 Links
+          - [Full Changelog](https://github.com/${{ github.repository }}/compare/$(git describe --tags --abbrev=0)...${{ steps.version.outputs.version }})
+          - [Documentation](https://katalyst-react.dev/docs)
+          "
+          
+          # Save to file for later use
+          echo "$NOTES" > release-notes.md
+          echo "release_notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$NOTES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Update version in files
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          # Update package.json versions
+          npm version ${{ steps.version.outputs.version }} --no-git-tag-version
+          
+          # Update all workspace package.json files
+          for pkg in core remix next shared; do
+            cd $pkg
+            npm version ${{ steps.version.outputs.version }} --no-git-tag-version
+            cd ..
+          done
+          
+          # Commit changes
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
+          git tag ${{ steps.version.outputs.version }}
+          git push origin HEAD --tags
+
+  build-release:
+    name: Build Release Assets
+    runs-on: ${{ matrix.os }}
+    needs: prepare-release
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+          - os: macos-latest
+            platform: darwin
+            arch: x64
+          - os: macos-latest
+            platform: darwin
+            arch: arm64
+          - os: windows-latest
+            platform: win32
+            arch: x64
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-release.outputs.version }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+          cache: 'npm'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'darwin' && matrix.arch == 'arm64' && 'aarch64-apple-darwin' || '' }}
+
+      - name: Install system dependencies (Linux)
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build for platform
+        run: |
+          # Build web assets
+          npm run build:all
+          
+          # Build desktop app if applicable
+          if [[ "${{ matrix.platform }}" != "web" ]]; then
+            npm run build:desktop -- --target ${{ matrix.platform }}-${{ matrix.arch }}
+          fi
+
+      - name: Package assets
+        run: |
+          # Create release directory
+          mkdir -p release-assets
+          
+          # Package web builds
+          for framework in core remix next; do
+            tar -czf release-assets/katalyst-$framework-${{ needs.prepare-release.outputs.version }}.tar.gz -C $framework/dist .
+          done
+          
+          # Package desktop builds
+          if [[ "${{ matrix.platform }}" != "web" ]]; then
+            cp -r desktop/dist/* release-assets/
+          fi
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}-${{ matrix.arch }}
+          path: release-assets/
+
+  publish-npm:
+    name: Publish to NPM
+    runs-on: ubuntu-latest
+    needs: [prepare-release, build-release]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-release.outputs.version }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build packages
+        run: npm run build:all
+
+      - name: Publish packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          # Publish each package
+          for pkg in shared core remix next; do
+            cd $pkg
+            npm publish --access public
+            cd ..
+          done
+
+  publish-docker:
+    name: Publish Docker Images
+    runs-on: ubuntu-latest
+    needs: [prepare-release, build-release]
+    strategy:
+      matrix:
+        framework: [core, remix, next]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-release.outputs.version }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/Dockerfile.${{ matrix.framework }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/katalyst-${{ matrix.framework }}:${{ needs.prepare-release.outputs.version }}
+            ghcr.io/${{ github.repository }}/katalyst-${{ matrix.framework }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [prepare-release, build-release, publish-npm, publish-docker]
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare-release.outputs.version }}
+          name: Release ${{ needs.prepare-release.outputs.version }}
+          body: ${{ needs.prepare-release.outputs.release_notes }}
+          draft: false
+          prerelease: ${{ contains(needs.prepare-release.outputs.version, '-') }}
+          files: release-artifacts/**/*
+
+  update-docs:
+    name: Update Documentation
+    runs-on: ubuntu-latest
+    needs: [prepare-release, create-release]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare-release.outputs.version }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+
+      - name: Build documentation
+        run: |
+          # Build docs with new version
+          cd docs
+          npm install
+          npm run build
+          cd ..
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs/dist
+
+  notify:
+    name: Send Notifications
+    runs-on: ubuntu-latest
+    needs: [prepare-release, create-release]
+    if: always()
+    steps:
+      - name: Send Discord notification
+        uses: sarisia/actions-status-discord@v1
+        with:
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+          title: "🚀 New Release: ${{ needs.prepare-release.outputs.version }}"
+          description: |
+            A new version of Katalyst React has been released!
+            
+            [View Release](https://github.com/${{ github.repository }}/releases/tag/${{ needs.prepare-release.outputs.version }})
+
+      - name: Send Slack notification
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: |
+            New Release: ${{ needs.prepare-release.outputs.version }}
+            Status: ${{ job.status }}
+            Release URL: https://github.com/${{ github.repository }}/releases/tag/${{ needs.prepare-release.outputs.version }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}

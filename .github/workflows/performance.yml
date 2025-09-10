@@ -1,0 +1,422 @@
+name: Performance Monitoring
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: '0 0 * * 0' # Weekly on Sunday
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  lighthouse:
+    name: Lighthouse Performance Audit
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        framework: [core, remix, next]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build ${{ matrix.framework }}
+        run: npm run build:${{ matrix.framework }}
+
+      - name: Run Lighthouse CI
+        uses: treosh/lighthouse-ci-action@v12
+        with:
+          configPath: './.lighthouserc.json'
+          uploadArtifacts: true
+          temporaryPublicStorage: true
+
+      - name: Format Lighthouse results
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request'
+        with:
+          script: |
+            const results = require('./lighthouse-results.json');
+            
+            const formatScore = (score) => {
+              const percentage = Math.round(score * 100);
+              if (percentage >= 90) return `🟢 ${percentage}`;
+              if (percentage >= 50) return `🟡 ${percentage}`;
+              return `🔴 ${percentage}`;
+            };
+            
+            const comment = `## 🔦 Lighthouse Report - ${{ matrix.framework }}
+            
+            | Metric | Score | Status |
+            |--------|-------|--------|
+            | Performance | ${formatScore(results.performance)} | ${results.performance >= 0.9 ? '✅' : '⚠️'} |
+            | Accessibility | ${formatScore(results.accessibility)} | ${results.accessibility >= 0.9 ? '✅' : '⚠️'} |
+            | Best Practices | ${formatScore(results['best-practices'])} | ${results['best-practices'] >= 0.9 ? '✅' : '⚠️'} |
+            | SEO | ${formatScore(results.seo)} | ${results.seo >= 0.9 ? '✅' : '⚠️'} |
+            | PWA | ${formatScore(results.pwa)} | ${results.pwa >= 0.9 ? '✅' : '⚠️'} |
+            
+            ### Core Web Vitals
+            - LCP: ${results.lcp}ms
+            - FID: ${results.fid}ms
+            - CLS: ${results.cls}
+            
+            [View full report](${results.reportUrl})
+            `;
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: comment
+            });
+
+  runtime-performance:
+    name: Runtime Performance Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        framework: [core, remix, next]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run performance benchmarks
+        run: |
+          # Create performance test
+          cat > perf-test.js << 'EOF'
+          const puppeteer = require('puppeteer');
+          const { performance } = require('perf_hooks');
+          
+          async function measurePerformance(url, framework) {
+            const browser = await puppeteer.launch();
+            const page = await browser.newPage();
+            
+            // Enable performance metrics
+            await page.setCacheEnabled(false);
+            
+            const metrics = [];
+            
+            for (let i = 0; i < 5; i++) {
+              const start = performance.now();
+              
+              await page.goto(url, { waitUntil: 'networkidle0' });
+              
+              // Get performance metrics
+              const perfMetrics = await page.metrics();
+              const timing = await page.evaluate(() => JSON.stringify(window.performance.timing));
+              
+              metrics.push({
+                framework,
+                run: i + 1,
+                loadTime: performance.now() - start,
+                ...perfMetrics,
+                timing: JSON.parse(timing)
+              });
+              
+              // Clear cache between runs
+              await page.evaluate(() => {
+                caches.keys().then(keys => keys.forEach(key => caches.delete(key)));
+              });
+            }
+            
+            await browser.close();
+            return metrics;
+          }
+          
+          module.exports = { measurePerformance };
+          EOF
+          
+          # Run performance tests
+          npm run preview:${{ matrix.framework }} &
+          SERVER_PID=$!
+          sleep 10
+          
+          node -e "
+            const { measurePerformance } = require('./perf-test.js');
+            measurePerformance('http://localhost:3000', '${{ matrix.framework }}')
+              .then(metrics => {
+                console.log(JSON.stringify(metrics, null, 2));
+                require('fs').writeFileSync('perf-results-${{ matrix.framework }}.json', JSON.stringify(metrics));
+              })
+              .catch(console.error)
+              .finally(() => process.exit());
+          "
+          
+          kill $SERVER_PID
+
+      - name: Upload performance results
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-results-${{ matrix.framework }}
+          path: perf-results-${{ matrix.framework }}.json
+
+  memory-profiling:
+    name: Memory Usage Analysis
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        framework: [core, remix, next]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Profile memory usage
+        run: |
+          # Start app with memory profiling
+          NODE_OPTIONS="--max-old-space-size=4096 --expose-gc" npm run dev:${{ matrix.framework }} &
+          APP_PID=$!
+          
+          sleep 10
+          
+          # Take heap snapshots
+          for i in {1..5}; do
+            kill -USR2 $APP_PID
+            sleep 5
+          done
+          
+          # Get memory stats
+          ps -o pid,vsz,rss,comm -p $APP_PID > memory-stats-${{ matrix.framework }}.txt
+          
+          kill $APP_PID
+
+      - name: Analyze heap snapshots
+        run: |
+          npx heapdump-analyzer *.heapsnapshot > heap-analysis-${{ matrix.framework }}.json
+
+      - name: Upload memory analysis
+        uses: actions/upload-artifact@v4
+        with:
+          name: memory-analysis-${{ matrix.framework }}
+          path: |
+            memory-stats-${{ matrix.framework }}.txt
+            heap-analysis-${{ matrix.framework }}.json
+
+  load-testing:
+    name: Load Testing
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    strategy:
+      matrix:
+        framework: [core, remix, next]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm install -g artillery
+
+      - name: Build and start server
+        run: |
+          npm run build:${{ matrix.framework }}
+          npm run preview:${{ matrix.framework }} &
+          SERVER_PID=$!
+          sleep 10
+
+      - name: Run load tests
+        run: |
+          # Create Artillery config
+          cat > artillery-config.yml << EOF
+          config:
+            target: "http://localhost:3000"
+            phases:
+              - duration: 60
+                arrivalRate: 10
+                name: "Warm up"
+              - duration: 120
+                arrivalRate: 50
+                name: "Ramp up"
+              - duration: 180
+                arrivalRate: 100
+                name: "Sustained load"
+            processor: "./artillery-processor.js"
+          scenarios:
+            - name: "Homepage Load"
+              flow:
+                - get:
+                    url: "/"
+                    capture:
+                      - json: "$"
+                        as: "response"
+            - name: "API Requests"
+              flow:
+                - get:
+                    url: "/api/data"
+                - think: 2
+                - post:
+                    url: "/api/submit"
+                    json:
+                      data: "test"
+          EOF
+          
+          # Run load test
+          artillery run artillery-config.yml --output load-test-${{ matrix.framework }}.json
+          
+          # Generate report
+          artillery report load-test-${{ matrix.framework }}.json
+
+      - name: Upload load test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: load-test-${{ matrix.framework }}
+          path: |
+            load-test-${{ matrix.framework }}.json
+            load-test-${{ matrix.framework }}.json.html
+
+  webvitals-tracking:
+    name: Web Vitals Tracking
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.15.0'
+          cache: 'npm'
+
+      - name: Deploy to preview
+        id: deploy
+        run: |
+          # Deploy to preview environment
+          npm run deploy:preview
+          echo "preview_url=https://preview.katalyst-react.dev" >> $GITHUB_OUTPUT
+
+      - name: Collect Web Vitals
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const CrUX = require('chrome-ux-report');
+            
+            const url = '${{ steps.deploy.outputs.preview_url }}';
+            const metrics = await CrUX.query({
+              url,
+              formFactor: 'ALL',
+              metrics: ['largest_contentful_paint', 'first_input_delay', 'cumulative_layout_shift']
+            });
+            
+            const vitals = {
+              timestamp: new Date().toISOString(),
+              url,
+              lcp: metrics.largest_contentful_paint,
+              fid: metrics.first_input_delay,
+              cls: metrics.cumulative_layout_shift
+            };
+            
+            // Store in performance tracking system
+            console.log('Web Vitals:', vitals);
+            
+            // Create issue if performance degrades
+            if (vitals.lcp.p75 > 2500 || vitals.fid.p75 > 100 || vitals.cls.p75 > 0.1) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: '⚠️ Performance Regression Detected',
+                body: `Web Vitals have degraded:\n\n- LCP: ${vitals.lcp.p75}ms (threshold: 2500ms)\n- FID: ${vitals.fid.p75}ms (threshold: 100ms)\n- CLS: ${vitals.cls.p75} (threshold: 0.1)`,
+                labels: ['performance', 'automated']
+              });
+            }
+
+  performance-summary:
+    name: Performance Summary
+    runs-on: ubuntu-latest
+    needs: [lighthouse, runtime-performance, memory-profiling]
+    if: always()
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: performance-artifacts/
+
+      - name: Generate performance report
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            // Aggregate performance data
+            const frameworks = ['core', 'remix', 'next'];
+            const report = {};
+            
+            frameworks.forEach(framework => {
+              // Read Lighthouse results
+              const lighthousePath = path.join('performance-artifacts', `lighthouse-${framework}`, 'results.json');
+              if (fs.existsSync(lighthousePath)) {
+                report[framework] = {
+                  lighthouse: JSON.parse(fs.readFileSync(lighthousePath, 'utf8'))
+                };
+              }
+              
+              // Read runtime performance
+              const perfPath = path.join('performance-artifacts', `performance-results-${framework}`, `perf-results-${framework}.json`);
+              if (fs.existsSync(perfPath)) {
+                report[framework].runtime = JSON.parse(fs.readFileSync(perfPath, 'utf8'));
+              }
+            });
+            
+            // Generate summary
+            let summary = '## 📊 Performance Summary\n\n';
+            
+            Object.entries(report).forEach(([framework, data]) => {
+              summary += `### ${framework.charAt(0).toUpperCase() + framework.slice(1)}\n\n`;
+              
+              if (data.lighthouse) {
+                summary += `**Lighthouse Scores:**\n`;
+                summary += `- Performance: ${Math.round(data.lighthouse.performance * 100)}/100\n`;
+                summary += `- LCP: ${data.lighthouse.lcp}ms\n`;
+                summary += `- TTI: ${data.lighthouse.tti}ms\n\n`;
+              }
+              
+              if (data.runtime) {
+                const avgLoadTime = data.runtime.reduce((sum, r) => sum + r.loadTime, 0) / data.runtime.length;
+                summary += `**Runtime Performance:**\n`;
+                summary += `- Average Load Time: ${avgLoadTime.toFixed(2)}ms\n`;
+                summary += `- Memory Usage: ${(data.runtime[0].JSHeapUsedSize / 1048576).toFixed(2)}MB\n\n`;
+              }
+            });
+            
+            // Post summary
+            if (context.eventName === 'pull_request') {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: summary
+              });
+            }

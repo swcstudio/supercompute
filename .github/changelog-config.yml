@@ -1,0 +1,208 @@
+# Changelog Generation Configuration
+
+# Categories for grouping changes
+categories:
+  - title: "🚀 Features"
+    labels:
+      - "feature"
+      - "enhancement"
+      - "feat"
+    commit_types:
+      - "feat"
+  
+  - title: "🐛 Bug Fixes"
+    labels:
+      - "bug"
+      - "fix"
+      - "bugfix"
+    commit_types:
+      - "fix"
+  
+  - title: "📚 Documentation"
+    labels:
+      - "documentation"
+      - "docs"
+    commit_types:
+      - "docs"
+  
+  - title: "🎨 Style & UI"
+    labels:
+      - "ui"
+      - "style"
+      - "design"
+    commit_types:
+      - "style"
+  
+  - title: "♻️ Code Refactoring"
+    labels:
+      - "refactor"
+      - "refactoring"
+    commit_types:
+      - "refactor"
+  
+  - title: "⚡ Performance"
+    labels:
+      - "performance"
+      - "optimization"
+    commit_types:
+      - "perf"
+  
+  - title: "✅ Tests"
+    labels:
+      - "test"
+      - "testing"
+    commit_types:
+      - "test"
+  
+  - title: "🏗️ Build & CI"
+    labels:
+      - "ci"
+      - "build"
+      - "ci/cd"
+    commit_types:
+      - "build"
+      - "ci"
+  
+  - title: "🔧 Configuration"
+    labels:
+      - "config"
+      - "configuration"
+    commit_types:
+      - "chore"
+  
+  - title: "⬆️ Dependencies"
+    labels:
+      - "dependencies"
+      - "deps"
+    commit_types:
+      - "deps"
+  
+  - title: "🔒 Security"
+    labels:
+      - "security"
+    commit_types:
+      - "security"
+  
+  - title: "💥 Breaking Changes"
+    labels:
+      - "breaking change"
+      - "breaking"
+    commit_types:
+      - "breaking"
+
+# Exclude certain commits from changelog
+exclude:
+  authors:
+    - "dependabot[bot]"
+    - "renovate[bot]"
+  commit_patterns:
+    - "^Merge branch"
+    - "^Merge pull request"
+    - "^Auto merge"
+  labels:
+    - "skip-changelog"
+    - "trivial"
+
+# Special handling rules
+rules:
+  # Highlight breaking changes
+  breaking_changes:
+    prefix: "⚠️ BREAKING:"
+    section: "top" # Show at the top of the changelog
+    
+  # Security fixes
+  security:
+    prefix: "🔒 SECURITY:"
+    highlight: true
+    
+  # Deprecations
+  deprecations:
+    prefix: "⚠️ DEPRECATED:"
+    track_removal_version: true
+
+# Formatting options
+formatting:
+  # Date format for version headers
+  date_format: "YYYY-MM-DD"
+  
+  # Include author credits
+  include_authors: true
+  author_format: "by @{username}"
+  
+  # Include commit hashes
+  include_commit_hash: true
+  hash_length: 7
+  
+  # Include PR links
+  include_pr_links: true
+  pr_format: "[#{number}]({url})"
+  
+  # Group by framework
+  group_by_framework: true
+  frameworks:
+    - name: "Core"
+      paths: ["core/**"]
+    - name: "Remix"
+      paths: ["remix/**"]
+    - name: "Next.js"
+      paths: ["next/**", "nextjs/**"]
+    - name: "Shared"
+      paths: ["shared/**"]
+    - name: "CI/CD"
+      paths: [".github/**"]
+
+# Version naming
+versioning:
+  # Version format validation
+  format: "^v?\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9]+)?(\\+[a-zA-Z0-9]+)?$"
+  
+  # Pre-release identifiers
+  prerelease_identifiers:
+    - "alpha"
+    - "beta"
+    - "rc"
+    - "preview"
+    - "next"
+
+# Claude AI instructions
+ai_instructions:
+  tone: "professional yet friendly"
+  
+  emphasis:
+    - "User impact and benefits"
+    - "Migration steps for breaking changes"
+    - "Performance improvements with metrics"
+    - "Security implications"
+    
+  include:
+    - "Emoji for visual organization"
+    - "Clear categorization"
+    - "Links to relevant documentation"
+    - "Credits to contributors"
+    - "Before/after examples for significant changes"
+    
+  avoid:
+    - "Technical jargon without explanation"
+    - "Implementation details without user benefit"
+    - "Vague descriptions"
+    - "Passive voice"
+    
+  special_sections:
+    - name: "Migration Guide"
+      when: "breaking changes exist"
+      format: "step-by-step instructions"
+      
+    - name: "Acknowledgments"
+      when: "external contributors exist"
+      format: "thank you message with contributor list"
+      
+    - name: "Known Issues"
+      when: "issues are documented"
+      format: "bulleted list with workarounds"
+
+# Auto-merge settings
+auto_merge:
+  enabled: false # Set to true to auto-merge changelog PRs
+  require_reviews: 1
+  dismiss_stale_reviews: true
+  delete_branch_on_merge: true

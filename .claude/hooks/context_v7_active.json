@@ -1,0 +1,23 @@
+{
+    "version": "7.0.0",
+    "activated": "$(date -Iseconds)",
+    "features": {
+        "context_engineering": true,
+        "aio_meta_agent": true,
+        "model_selection": true,
+        "julia_hpc": true,
+        "all_9_hooks": true,
+        "slash_commands": true
+    },
+    "models": {
+        "Sonnet": "Fast execution for simple tasks",
+        "Opus": "Balanced performance for general work",
+        "opusplan": "Deep reasoning for complex tasks"
+    },
+    "agents": [
+        "aio", "alignment", "research", "architect", "optimize",
+        "security", "data", "test", "refactor", "document",
+        "deploy", "monitor", "migrate", "analyze", "automate",
+        "benchmark", "meta", "integrate"
+    ]
+}

@@ -1,0 +1,255 @@
+{
+  "permissions": {
+    "allow": [
+      "Edit",
+      "Read",
+      "ReadFile:*",
+      "WriteFile:*",
+      "DeleteFile:*",
+      "CreateFile:*",
+      "MoveFile:*",
+      "CopyFile:*",
+      "Bash:*",
+      "Terminal:*",
+      "Shell:*",
+      "Git:*",
+      "NPM:*",
+      "Yarn:*",
+      "PNPM:*",
+      "Pip:*",
+      "Poetry:*",
+      "Conda:*",
+      "Cargo:*",
+      "Go:*",
+      "Make:*",
+      "CMake:*",
+      "Docker:*",
+      "DockerCompose:*",
+      "Kubectl:*",
+      "Helm:*",
+      "Terraform:*",
+      "Ansible:*",
+      "WebFetch:*",
+      "HTTP:*",
+      "Curl:*",
+      "Wget:*",
+      "mcp__*",
+      "FileSystem:*",
+      "Search:*",
+      "Find:*",
+      "Grep:*",
+      "Rg:*",
+      "Sed:*",
+      "Awk:*",
+      "Cat:*",
+      "Less:*",
+      "Tree:*",
+      "Ls:*",
+      "Pwd:*",
+      "Cd:*",
+      "Mkdir:*",
+      "Touch:*",
+      "Chmod:*",
+      "Chown:*",
+      "Cp:*",
+      "Mv:*",
+      "Rm:*",
+      "Tar:*",
+      "Zip:*",
+      "Unzip:*",
+      "SSH:*",
+      "SCP:*",
+      "Rsync:*",
+      "Ping:*",
+      "Netstat:*",
+      "Ps:*",
+      "Top:*",
+      "Kill:*",
+      "Jobs:*",
+      "Date:*",
+      "Who:*",
+      "History:*",
+      "Which:*",
+      "Man:*",
+      "File:*",
+      "Du:*",
+      "Df:*",
+      "Free:*",
+      "Mount:*",
+      "Systemctl:*",
+      "Service:*",
+      "Crontab:*",
+      "Openssl:*",
+      "Base64:*",
+      "Diff:*",
+      "Wc:*",
+      "Xargs:*",
+      "Watch:*",
+      "Jq:*",
+      "Python:*",
+      "Python3:*",
+      "Node:*",
+      "Ruby:*",
+      "Java:*",
+      "Javac:*",
+      "Rust:*",
+      "Rustc:*",
+      "GCC:*",
+      "Clang:*",
+      "Elixir:*",
+      "Mix:*",
+      "Phoenix:*",
+      "Ecto:*",
+      "ExUnit:*",
+      "TypeScript:*",
+      "ESLint:*",
+      "Prettier:*",
+      "Jest:*",
+      "Cypress:*",
+      "Webpack:*",
+      "Vite:*",
+      "Next:*",
+      "React:*",
+      "Vue:*",
+      "Angular:*"
+    ],
+    "deny": [
+      "Bash(sudo rm -rf /*)",
+      "Bash(sudo rm -rf /)",
+      "Bash(rm -rf /*)",
+      "Bash(rm -rf /)",
+      "Bash(:(){ :|:& };:)",
+      "Bash(sudo dd if=/dev/zero of=/dev/sda*)",
+      "Bash(sudo mkfs*)",
+      "Bash(sudo fdisk*)",
+      "Bash(sudo parted*)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "disabledMcpjsonServers": [],
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/ubuntu/.claude/hooks/schemantics_uplift.sh"
+          },
+          {
+            "type": "command",
+            "command": "/home/ubuntu/.claude/hooks/user-prompt-quantum-hook.sh"
+          },
+          {
+            "type": "command",
+            "command": "/home/ubuntu/.claude/hooks/quantum_command_hook.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write,Edit,MultiEdit,Bash,WebFetch,Glob,Grep,Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/ubuntu/.claude/hooks/business_opportunity_detector_julia.sh"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/ubuntu/.claude/hooks/error_occurred_hook.sh"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/ubuntu/.claude/hooks/schema_uplift_hook.sh"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/ubuntu/.claude/hooks/subagent_consolidator_julia.sh"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/ubuntu/.claude/hooks/session_analytics_julia.sh"
+          }
+        ]
+      }
+    ]
+  },
+  "defaultMode": "acceptEdits",
+  "autoApprove": {
+    "bashCommands": true,
+    "fileOperations": true,
+    "webRequests": true,
+    "mcpTools": true,
+    "gitOperations": true,
+    "packageManagers": true,
+    "testOperations": true,
+    "buildOperations": true
+  },
+  "environmentVariables": {
+    "EDITOR": "tmux",
+    "VISUAL": "nano",
+    "CLAUDE_AUTO_APPROVE": "true"
+  },
+  "customCommands": {
+    "quantum-analysis": "python3 /home/ubuntu/src/repos/scripts/quantum_data_analysis.py",
+    "apechain-migrate": "cd /home/ubuntu/src/repos/pack-a-punched && ./scripts/apechain_migration.sh",
+    "autonogrammer-init": "cd /home/ubuntu/src/repos/autonogrammer && mix phx.new",
+    "katalyst-start": "cd /home/ubuntu/src/repos/katalyst && mix phx.server",
+    "manifolded-deploy": "cd /home/ubuntu/src/repos/manifolded && ./deploy.sh",
+    "zero-trust-audit": "python3 /home/ubuntu/src/repos/scripts/zero_trust_audit.py"
+  },
+  "aliases": {
+    "qa": "quantum-analysis",
+    "am": "apechain-migrate",
+    "ai": "autonogrammer-init",
+    "ks": "katalyst-start",
+    "md": "manifolded-deploy",
+    "zta": "zero-trust-audit",
+    "build": "npm run build || cargo build || make build || mix compile",
+    "test": "npm test || cargo test || make test || mix test",
+    "lint": "npm run lint || cargo clippy || mix credo",
+    "format": "npm run format || cargo fmt || mix format",
+    "start": "npm start || cargo run || make run || mix phx.server",
+    "logs": "tail -f /var/log/app.log || docker logs -f $(docker ps -q)",
+    "git-status": "git status --porcelain",
+    "docker-ps": "docker ps -a",
+    "k8s-pods": "kubectl get pods -A"
+  },
+  "maxConcurrentOperations": 500,
+  "operationTimeout": 300000,
+  "verboseLogging": true,
+  "trustLevel": "high",
+  "allowedDomains": [
+    "*"
+  ],
+  "networkTimeout": 30000
+}

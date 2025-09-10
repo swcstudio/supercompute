@@ -1,0 +1,53 @@
+# CODEOWNERS file for automatic review assignment
+
+# Global owners (will be requested for review on all changes)
+* @SomeRandmGuyy
+
+# Framework-specific owners
+/core/ @SomeRandmGuyy @core-team
+/remix/ @SomeRandmGuyy @remix-team
+/next/ @SomeRandmGuyy @nextjs-team
+/shared/ @SomeRandmGuyy @shared-team
+
+# Documentation
+/docs/ @SomeRandmGuyy @docs-team
+*.md @docs-team
+
+# CI/CD and GitHub configuration
+/.github/ @SomeRandmGuyy @devops-team
+
+# Testing
+/tests/ @SomeRandmGuyy @qa-team
+*.test.ts @qa-team
+*.test.tsx @qa-team
+*.spec.ts @qa-team
+*.spec.tsx @qa-team
+
+# Security-sensitive files
+/security/ @SomeRandmGuyy @security-team
+*.key @security-team
+*.pem @security-team
+*.env* @security-team
+
+# Configuration files
+package.json @SomeRandmGuyy @lead-devs
+package-lock.json @SomeRandmGuyy @lead-devs
+tsconfig.json @SomeRandmGuyy @lead-devs
+.nvmrc @devops-team
+.gitignore @devops-team
+
+# Docker and deployment
+/docker/ @devops-team
+Dockerfile* @devops-team
+docker-compose* @devops-team
+/k8s/ @devops-team
+*.yaml @devops-team
+*.yml @devops-team
+
+# Design system
+/shared/src/design-system/ @design-system-team
+/shared/src/components/ @design-system-team
+
+# Platform-specific
+/desktop/ @desktop-team
+/mobile/ @mobile-team

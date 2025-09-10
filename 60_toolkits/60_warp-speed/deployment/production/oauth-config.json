@@ -1,0 +1,26 @@
+{
+  "google": {
+    "client_id": "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com",
+    "client_secret": "YOUR_GOOGLE_CLIENT_SECRET",
+    "redirect_uri": "https://kled.io/auth/google/callback",
+    "auth_uri": "https://accounts.google.com/o/oauth2/v2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "scopes": [
+      "openid",
+      "email",
+      "profile"
+    ],
+    "authorized_emails": [
+      "oveshen.govender@gmail.com",
+      "quinesryan@gmail.com"
+    ]
+  },
+  "jwt": {
+    "secret": "CHANGE_THIS_TO_A_SECURE_RANDOM_STRING_IN_PRODUCTION",
+    "expiry": "24h"
+  },
+  "session": {
+    "secret": "CHANGE_THIS_SESSION_SECRET_IN_PRODUCTION",
+    "max_age": 86400
+  }
+}

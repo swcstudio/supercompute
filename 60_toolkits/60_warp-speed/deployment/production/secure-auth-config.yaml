@@ -1,0 +1,54 @@
+# Secure Authentication Configuration for Warp-Speed Founders Platform
+# This replaces the insecure hardcoded credentials approach
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: auth-config
+  namespace: warp-speed-founders
+data:
+  AUTH_PROVIDER: "oauth2"
+  MFA_REQUIRED: "true"
+  SESSION_TIMEOUT: "3600"
+  PASSWORD_MIN_LENGTH: "12"
+  PASSWORD_REQUIRE_SPECIAL: "true"
+  PASSWORD_REQUIRE_NUMBERS: "true"
+  PASSWORD_ROTATION_DAYS: "90"
+  IP_WHITELIST_ENABLED: "true"
+  RATE_LIMIT_ENABLED: "true"
+  MAX_LOGIN_ATTEMPTS: "5"
+  LOCKOUT_DURATION: "900"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: founder-credentials
+  namespace: warp-speed-founders
+type: Opaque
+stringData:
+  # These should be replaced with proper hashed values using bcrypt/argon2
+  # NEVER store plaintext passwords
+  OVE_USERNAME: "ove@warp-speed.tech"
+  RYAN_USERNAME: "ryan@warp-speed.tech"
+  # Use environment variables or secrets management for actual deployment
+  OAUTH_CLIENT_ID: "${OAUTH_CLIENT_ID}"
+  OAUTH_CLIENT_SECRET: "${OAUTH_CLIENT_SECRET}"
+  JWT_SECRET: "${JWT_SECRET}"
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: security-headers
+  namespace: warp-speed-founders
+data:
+  headers.conf: |
+    # Security Headers Configuration
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;

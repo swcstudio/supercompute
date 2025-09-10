@@ -1,0 +1,214 @@
+# ============================================
+# Supercompute Repository .gitignore
+# Applied Science Programming Framework
+# Omega Point Theory Implementation
+# ============================================
+
+# Claude Code Configuration - Sensitive Data Exclusions
+# ======================================================
+
+# EXCLUDE: Personal/Sensitive Claude Data
+.claude/.credentials.json
+.claude/shell-snapshots/
+.claude/todos/
+.claude/statsig/
+.claude/downloads/
+.claude/plugins/
+.claude/projects/*/sensitive/
+.claude/projects/*/credentials/
+.claude/projects/*/.env
+.claude/projects/*/.secrets
+
+# EXCLUDE: Personal Session Data
+.claude/hooks/julia_business_automation/data/
+.claude/hooks/*/personal_data/
+.claude/autonomous_test_results.json
+.claude/schemantics-uplift.log
+
+# INCLUDE: Essential Claude Configuration (will be manually staged)
+# .claude/commands/          # Agent command definitions
+# .claude/agents/           # Agent specifications
+# .claude/hooks/           # Quantum hooks and scripts (filtered)
+# .claude/settings.json    # Configuration (will be filtered)
+# .claude/CLAUDE.md        # Documentation
+# .claude/output-styles/   # Output style definitions
+# .claude/ide/            # IDE configurations
+
+# Build Artifacts & Dependencies - AGGRESSIVE CLEANUP
+# ===================================================
+**/target/
+**/node_modules/
+**/dist/
+**/build/
+**/.venv/
+**/__pycache__/
+**/debug/
+**/release/
+*.o
+*.so
+*.dylib
+*.exe
+*.dll
+*.class
+*.jar
+*.war
+*.ear
+*.pyc
+*.pyo
+*.pyd
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Large Build Artifacts (>100MB)
+**/*.rlib
+**/*.rmeta
+**/deps/lib*
+**/incremental/
+**/build/
+**/tmp/
+**/temp/
+
+# Language Specific
+# ==================
+
+# Rust
+Cargo.lock
+target/
+**/*.rs.bk
+
+# Julia
+*.jl.cov
+*.jl.*.cov
+*.jl.mem
+deps/deps.jl
+deps/build.log
+deps/downloads/
+
+# Python
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# Development Environment
+# =======================
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS Generated
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+logs/
+log/
+
+# Temporary Files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Environment Variables
+.env
+.env.local
+.env.production
+.env.test
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Quantum Computing & AI Specific
+# ================================
+
+# Large Model Files
+*.model
+*.weights
+*.checkpoint
+*.ckpt
+models/weights/
+checkpoints/
+
+# Data Files
+*.csv
+*.json.large
+*.parquet
+data/raw/
+data/processed/
+datasets/
+
+# Blockchain & Web3
+# =================
+.secret
+private_keys/
+wallets/
+keystore/
+
+# Applied Science Programming Exclusions  
+# ======================================
+
+# Experimental Data
+experiments/raw_data/
+quantum_experiments/personal/
+consciousness_logs/sensitive/
+
+# Performance Benchmarks (large files)
+benchmarks/results/*.json
+benchmarks/datasets/
+
+# ETD Generation Reports (may contain sensitive metrics)
+etd_reports/client_data/
+etd_analysis/proprietary/
+
+# Research Data
+research/unpublished/
+research/draft_papers/
+papers/in_review/
+
+# Enterprise Integration Configs
+enterprise_configs/client_specific/
+deployment_configs/production/
+
+# Supercompute Build Artifacts
+supercompute/build/
+supercompute/target/
+supercompute/dist/
+supercompute/.schemantics_cache/
+
+# ============================================
+# END Supercompute .gitignore
+# Omega Point Theory - First Earth Observation
+# Oveshen Govender, Australia, 2025
+# ============================================

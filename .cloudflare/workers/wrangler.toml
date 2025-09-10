@@ -1,0 +1,91 @@
+name = "claude-code-worker"
+main = "claude-code-worker.js"
+compatibility_date = "2024-01-01"
+
+# Worker configuration
+workers_dev = true
+route = { pattern = "claude-api.yourdomain.com/*", zone_id = "YOUR_ZONE_ID" }
+
+# Environment variables
+[vars]
+CF_REGION = "auto"
+
+# KV Namespaces
+[[kv_namespaces]]
+binding = "KV_CACHE"
+id = "YOUR_KV_CACHE_ID"
+preview_id = "YOUR_KV_CACHE_PREVIEW_ID"
+
+[[kv_namespaces]]
+binding = "KV_METRICS"
+id = "YOUR_KV_METRICS_ID"
+preview_id = "YOUR_KV_METRICS_PREVIEW_ID"
+
+# D1 Database
+[[d1_databases]]
+binding = "DB"
+database_name = "claude-code-db"
+database_id = "YOUR_D1_DATABASE_ID"
+
+# Queues
+[[queues.producers]]
+binding = "QUEUE"
+queue = "claude-tasks"
+
+[[queues.consumers]]
+queue = "claude-tasks"
+max_batch_size = 10
+max_batch_timeout = 30
+
+# R2 Buckets
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "claude-code-storage"
+preview_bucket_name = "claude-code-storage-preview"
+
+# Email routing
+[triggers]
+email = ["claude-code@yourdomain.com"]
+
+# Analytics Engine
+[[analytics_engine_datasets]]
+binding = "AE"
+
+# Secrets (set via wrangler secret)
+# ANTHROPIC_API_KEY
+# GITHUB_WEBHOOK_SECRET
+# LINEAR_WEBHOOK_SECRET
+# GITHUB_TOKEN
+# LINEAR_API_KEY
+
+# Build configuration
+[build]
+command = "npm run build"
+[build.upload]
+format = "service-worker"
+
+# Compatibility flags
+compatibility_flags = [ "nodejs_compat" ]
+
+# Durable Objects (for stateful operations)
+[[durable_objects.bindings]]
+name = "AI_SESSION"
+class_name = "AISession"
+script_name = "claude-code-worker"
+
+# Environments
+[env.production]
+route = { pattern = "claude-api.yourdomain.com/*", zone_id = "YOUR_ZONE_ID" }
+vars = { LOG_LEVEL = "warn" }
+
+[env.staging]
+route = { pattern = "claude-api-staging.yourdomain.com/*", zone_id = "YOUR_ZONE_ID" }
+vars = { LOG_LEVEL = "info" }
+
+# Observability
+[observability]
+enabled = true
+
+# Limits
+[limits]
+cpu_ms = 50

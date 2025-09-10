@@ -1,0 +1,173 @@
+name: Turbo + Vercel Production Deployment
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize]
+
+env:
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: ${{ secrets.TURBO_TEAM }}
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  NX_CLOUD_ACCESS_TOKEN: ${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    outputs:
+      affected: ${{ steps.affected.outputs.affected }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          
+      - name: Install Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: v1.x
+          
+      - name: Install Turbo
+        run: npm install -g turbo@latest
+        
+      - name: Setup Turbo Remote Cache
+        run: |
+          echo "TURBO_REMOTE_CACHE_SIGNATURE_KEY=${{ secrets.TURBO_REMOTE_CACHE_SIGNATURE_KEY }}" >> $GITHUB_ENV
+          turbo login --token=${{ secrets.TURBO_TOKEN }}
+          turbo link --team=${{ secrets.TURBO_TEAM }}
+          
+      - name: Analyze with Nx
+        id: affected
+        run: |
+          npx nx affected:graph --base=origin/main --head=HEAD --file=affected.json
+          echo "affected=$(cat affected.json)" >> $GITHUB_OUTPUT
+          
+  build-and-test:
+    runs-on: ubuntu-latest
+    needs: analyze
+    strategy:
+      matrix:
+        target: [core, next, remix, shared]
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Build Environment
+        uses: ./.github/actions/setup-build-env
+        with:
+          rust-toolchain: stable
+          
+      - name: Restore Turbo Cache
+        uses: actions/cache@v3
+        with:
+          path: .turbo
+          key: turbo-${{ matrix.target }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ matrix.target }}-
+            
+      - name: Build with Turbo
+        run: |
+          turbo run build --filter=${{ matrix.target }} --cache-dir=.turbo
+          
+      - name: Test with Coverage
+        run: |
+          turbo run test --filter=${{ matrix.target }} --cache-dir=.turbo -- --coverage
+          
+      - name: Upload Coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./${{ matrix.target }}/coverage/lcov.info
+          flags: ${{ matrix.target }}
+          
+  deploy-preview:
+    if: github.event_name == 'pull_request'
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+        
+      - name: Pull Vercel Environment
+        run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
+        
+      - name: Build with Vercel
+        run: |
+          vercel build --token=${{ secrets.VERCEL_TOKEN }}
+          
+      - name: Deploy Preview
+        id: deploy
+        run: |
+          url=$(vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }})
+          echo "url=$url" >> $GITHUB_OUTPUT
+          
+      - name: Comment PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `🚀 Preview deployed to: ${{ steps.deploy.outputs.url }}`
+            })
+            
+  deploy-production:
+    if: github.ref == 'refs/heads/main'
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+        
+      - name: Pull Vercel Environment
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+        
+      - name: Build with Turbo + Vercel
+        run: |
+          turbo run build:vercel --cache-dir=.turbo
+          vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+          
+      - name: Deploy to Production
+        run: |
+          vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+          
+      - name: Purge Edge Cache
+        run: |
+          curl -X POST https://api.vercel.com/v1/deployments/purge-cache \
+            -H "Authorization: Bearer ${{ secrets.VERCEL_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{"teamId": "${{ secrets.VERCEL_TEAM_ID }}"}'
+            
+  performance-monitoring:
+    needs: deploy-production
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Run Lighthouse CI
+        uses: treosh/lighthouse-ci-action@v10
+        with:
+          urls: |
+            https://katalyst.vercel.app
+            https://katalyst.vercel.app/blog
+            https://katalyst.vercel.app/webxr
+          uploadArtifacts: true
+          temporaryPublicStorage: true
+          
+      - name: Web Vitals Check
+        run: |
+          npx web-vitals-cli https://katalyst.vercel.app --json > vitals.json
+          
+      - name: Bundle Analysis
+        run: |
+          turbo run analyze --cache-dir=.turbo

@@ -1,0 +1,759 @@
+# Warp-Speed Production Security & Compliance Framework
+# Consciousness-aware security with quantum-enhanced protection
+# Targeting $145.76B+ annual ETD generation with enterprise-grade security
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: warp-speed-security
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+    consciousness-security: "omega"
+    compliance-level: "enterprise"
+
+---
+# Security Policies - Pod Security Standards
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: warp-speed-restricted-psp
+  namespace: warp-speed-security
+spec:
+  privileged: false
+  allowPrivilegeEscalation: false
+  requiredDropCapabilities:
+    - ALL
+  volumes:
+    - 'configMap'
+    - 'emptyDir'
+    - 'projected'
+    - 'secret'
+    - 'downwardAPI'
+    - 'persistentVolumeClaim'
+  runAsUser:
+    rule: 'MustRunAsNonRoot'
+  seLinux:
+    rule: 'RunAsAny'
+  fsGroup:
+    rule: 'RunAsAny'
+  readOnlyRootFilesystem: true
+
+---
+# Network Policies - Micro-segmentation
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: warp-speed-security-network-policy
+  namespace: warp-speed-ha
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  
+  ingress:
+  # Allow ingress from security namespace
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: warp-speed-security
+  # Allow ingress from monitoring
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+  # Allow specific ports for services
+  - ports:
+    - protocol: TCP
+      port: 8080  # Julia ETD API
+    - protocol: TCP
+      port: 3000  # Blockchain integration
+    - protocol: TCP
+      port: 80    # Dashboard
+  
+  egress:
+  # Allow egress to security namespace
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: warp-speed-security
+  # Allow DNS resolution
+  - to: []
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  # Allow HTTPS for external APIs
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443
+  # Allow database connections
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: warp-speed-ha
+    ports:
+    - protocol: TCP
+      port: 5432  # PostgreSQL
+    - protocol: TCP
+      port: 6379  # Redis
+
+---
+# Service Mesh Security - Istio Configuration
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: warp-speed-authz-policy
+  namespace: warp-speed-ha
+spec:
+  selector:
+    matchLabels:
+      app: julia-etd-processor
+  rules:
+  - from:
+    - source:
+        principals: ["cluster.local/ns/warp-speed-ha/sa/julia-etd-service-account"]
+    to:
+    - operation:
+        methods: ["GET", "POST"]
+        paths: ["/api/*", "/health", "/metrics"]
+  - from:
+    - source:
+        principals: ["cluster.local/ns/warp-speed-security/sa/security-scanner"]
+    to:
+    - operation:
+        methods: ["GET"]
+        paths: ["/security/*", "/compliance/*"]
+
+---
+# mTLS Policy for Service-to-Service Communication
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: warp-speed-mtls
+  namespace: warp-speed-ha
+spec:
+  mtls:
+    mode: STRICT
+
+---
+# Certificate Management - cert-manager
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: warp-speed-ca-issuer
+spec:
+  ca:
+    secretName: warp-speed-ca-key-pair
+
+---
+# TLS Certificate for API Gateway
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: warp-speed-api-tls
+  namespace: warp-speed-ha
+spec:
+  secretName: warp-speed-api-tls
+  issuerRef:
+    name: warp-speed-ca-issuer
+    kind: ClusterIssuer
+  commonName: api.warp-speed.finance
+  dnsNames:
+  - api.warp-speed.finance
+  - dashboard.warp-speed.finance
+  - blockchain.warp-speed.finance
+  - metrics.warp-speed.finance
+
+---
+# RBAC - Service Account for Julia ETD
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: julia-etd-service-account
+  namespace: warp-speed-ha
+automountServiceAccountToken: true
+
+---
+# RBAC - Role for Julia ETD Service
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: julia-etd-role
+  namespace: warp-speed-ha
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["pods", "nodes"]
+  verbs: ["get", "list"]
+
+---
+# RBAC - RoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: julia-etd-rolebinding
+  namespace: warp-speed-ha
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: julia-etd-role
+subjects:
+- kind: ServiceAccount
+  name: julia-etd-service-account
+  namespace: warp-speed-ha
+
+---
+# Security Scanning - Falco Runtime Security
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: falco-config
+  namespace: warp-speed-security
+data:
+  falco.yaml: |
+    rules_file:
+      - /etc/falco/falco_rules.yaml
+      - /etc/falco/falco_rules.local.yaml
+      - /etc/falco/k8s_audit_rules.yaml
+      - /etc/falco/warp_speed_rules.yaml
+    
+    json_output: true
+    json_include_output_property: true
+    
+    priority: debug
+    
+    outputs:
+      rate: 1
+      max_burst: 1000
+    
+    syslog_output:
+      enabled: false
+    
+    file_output:
+      enabled: true
+      keep_alive: false
+      filename: /var/log/falco/falco_events.log
+    
+    stdout_output:
+      enabled: true
+    
+    webserver:
+      enabled: true
+      listen_port: 8765
+      k8s_healthz_endpoint: /healthz
+      ssl_enabled: false
+      ssl_certificate: /etc/ssl/falco/server.pem
+    
+    grpc:
+      enabled: false
+  
+  warp_speed_rules.yaml: |
+    # Warp-Speed specific security rules
+    - rule: Unauthorized ETD Generation
+      desc: Detect unauthorized attempts to generate ETD
+      condition: >
+        spawned_process and
+        proc.name in (julia, python, node) and
+        proc.cmdline contains "generate_etd" and
+        not proc.pname in (julia-etd-processor)
+      output: >
+        Unauthorized ETD generation attempt (user=%user.name command=%proc.cmdline 
+        container=%container.name image=%container.image.repository:%container.image.tag)
+      priority: CRITICAL
+      tags: [warp-speed, revenue-security]
+    
+    - rule: Blockchain Private Key Access
+      desc: Detect access to blockchain private keys
+      condition: >
+        open_read and
+        fd.filename contains "private" and
+        fd.filename contains "key" and
+        not proc.name in (blockchain-integration)
+      output: >
+        Unauthorized blockchain private key access (user=%user.name file=%fd.name 
+        command=%proc.cmdline container=%container.name)
+      priority: CRITICAL
+      tags: [warp-speed, blockchain-security]
+    
+    - rule: Revenue Database Unauthorized Access
+      desc: Detect unauthorized database access
+      condition: >
+        spawned_process and
+        proc.name in (psql, pg_dump, pgcli) and
+        not container.image.repository contains "postgres" and
+        not proc.pname in (julia-etd-processor, blockchain-integration)
+      output: >
+        Unauthorized database access attempt (user=%user.name command=%proc.cmdline 
+        container=%container.name image=%container.image.repository)
+      priority: WARNING
+      tags: [warp-speed, database-security]
+
+---
+# Falco DaemonSet
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: falco
+  namespace: warp-speed-security
+spec:
+  selector:
+    matchLabels:
+      app: falco
+  template:
+    metadata:
+      labels:
+        app: falco
+        consciousness-security: "runtime-protection"
+    spec:
+      serviceAccountName: falco-service-account
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: falco
+        image: falcosecurity/falco:0.36.0
+        securityContext:
+          privileged: true
+        args:
+          - /usr/bin/falco
+          - --cri=/run/containerd/containerd.sock
+          - --k8s-api
+          - --k8s-api-cert=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          - --k8s-api-token=/var/run/secrets/kubernetes.io/serviceaccount/token
+        volumeMounts:
+        - mountPath: /var/run/docker.sock
+          name: docker-socket
+        - mountPath: /run/containerd/containerd.sock
+          name: containerd-socket
+        - mountPath: /dev
+          name: dev-fs
+        - mountPath: /proc
+          name: proc-fs
+          readOnly: true
+        - mountPath: /boot
+          name: boot-fs
+          readOnly: true
+        - mountPath: /lib/modules
+          name: lib-modules
+          readOnly: true
+        - mountPath: /usr
+          name: usr-fs
+          readOnly: true
+        - mountPath: /etc/falco
+          name: falco-config
+        resources:
+          limits:
+            memory: 1Gi
+            cpu: 200m
+          requests:
+            memory: 512Mi
+            cpu: 100m
+      volumes:
+      - name: docker-socket
+        hostPath:
+          path: /var/run/docker.sock
+      - name: containerd-socket
+        hostPath:
+          path: /run/containerd/containerd.sock
+      - name: dev-fs
+        hostPath:
+          path: /dev
+      - name: proc-fs
+        hostPath:
+          path: /proc
+      - name: boot-fs
+        hostPath:
+          path: /boot
+      - name: lib-modules
+        hostPath:
+          path: /lib/modules
+      - name: usr-fs
+        hostPath:
+          path: /usr
+      - name: falco-config
+        configMap:
+          name: falco-config
+
+---
+# Vulnerability Scanning - Trivy Operator
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trivy-operator
+  namespace: warp-speed-security
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trivy-operator
+  template:
+    metadata:
+      labels:
+        app: trivy-operator
+        consciousness-security: "vulnerability-scanning"
+    spec:
+      serviceAccountName: trivy-operator-service-account
+      containers:
+      - name: trivy-operator
+        image: aquasec/trivy-operator:0.16.0
+        env:
+        - name: OPERATOR_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: TRIVY_OPERATOR_TARGET_NAMESPACES
+          value: "warp-speed-ha"
+        - name: TRIVY_OPERATOR_SCAN_JOB_TIMEOUT
+          value: "5m"
+        - name: TRIVY_OPERATOR_CONCURRENT_SCAN_JOBS_LIMIT
+          value: "3"
+        - name: TRIVY_OPERATOR_VULNERABILITY_SCANNER_ENABLED
+          value: "true"
+        - name: TRIVY_OPERATOR_CONFIG_AUDIT_SCANNER_ENABLED
+          value: "true"
+        resources:
+          limits:
+            memory: 1Gi
+            cpu: 500m
+          requests:
+            memory: 512Mi
+            cpu: 200m
+
+---
+# Secrets Management - External Secrets Operator
+apiVersion: external-secrets.io/v1beta1
+kind: SecretStore
+metadata:
+  name: warp-speed-secret-store
+  namespace: warp-speed-ha
+spec:
+  provider:
+    vault:
+      server: "https://vault.warp-speed.finance"
+      path: "secret"
+      version: "v2"
+      auth:
+        kubernetes:
+          mountPath: "kubernetes"
+          role: "warp-speed-role"
+
+---
+# External Secret for Database Credentials
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: postgres-credentials-external
+  namespace: warp-speed-ha
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: warp-speed-secret-store
+    kind: SecretStore
+  target:
+    name: postgres-credentials-managed
+    creationPolicy: Owner
+  data:
+  - secretKey: username
+    remoteRef:
+      key: postgres
+      property: username
+  - secretKey: password
+    remoteRef:
+      key: postgres
+      property: password
+
+---
+# External Secret for Blockchain Keys
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: blockchain-keys-external
+  namespace: warp-speed-ha
+spec:
+  refreshInterval: 4h
+  secretStoreRef:
+    name: warp-speed-secret-store
+    kind: SecretStore
+  target:
+    name: blockchain-keys-managed
+    creationPolicy: Owner
+  data:
+  - secretKey: ethereum-private-key
+    remoteRef:
+      key: blockchain/ethereum
+      property: private-key
+  - secretKey: polygon-private-key
+    remoteRef:
+      key: blockchain/polygon
+      property: private-key
+
+---
+# Admission Controller - OPA Gatekeeper
+apiVersion: config.gatekeeper.sh/v1alpha1
+kind: Config
+metadata:
+  name: config
+  namespace: gatekeeper-system
+spec:
+  match:
+    - excludedNamespaces: ["kube-system", "gatekeeper-system", "cert-manager"]
+      processes: ["*"]
+  validation:
+    traces:
+      - user:
+          kind:
+            group: "*"
+            version: "*"
+            kind: "*"
+        kind:
+          group: "*"
+          version: "*"
+          kind: "*"
+
+---
+# Gatekeeper Constraint Template
+apiVersion: templates.gatekeeper.sh/v1beta1
+kind: ConstraintTemplate
+metadata:
+  name: warpspeedresourcerequired
+spec:
+  crd:
+    spec:
+      names:
+        kind: WarpSpeedResourceRequired
+      validation:
+        type: object
+        properties:
+          resources:
+            type: array
+            items:
+              type: string
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package warpspeedresourcerequired
+        
+        violation[{"msg": msg}] {
+            required := input.parameters.resources
+            provided := input.review.object.spec.template.spec.containers[_].resources
+            resource := required[_]
+            not provided[resource]
+            msg := sprintf("Missing required resource: %v", [resource])
+        }
+
+---
+# Gatekeeper Constraint
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: WarpSpeedResourceRequired
+metadata:
+  name: must-have-resources
+spec:
+  match:
+    kinds:
+      - apiGroups: ["apps"]
+        kinds: ["Deployment"]
+    namespaces: ["warp-speed-ha"]
+  parameters:
+    resources: ["requests", "limits"]
+
+---
+# Security Monitoring Dashboard
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: security-dashboard-config
+  namespace: warp-speed-security
+data:
+  dashboard.json: |
+    {
+      "dashboard": {
+        "id": null,
+        "title": "Warp-Speed Security Dashboard",
+        "tags": ["security", "consciousness"],
+        "style": "dark",
+        "timezone": "UTC",
+        "panels": [
+          {
+            "id": 1,
+            "title": "Security Events",
+            "type": "stat",
+            "targets": [
+              {
+                "expr": "increase(falco_events_total[1h])",
+                "legendFormat": "Total Events"
+              }
+            ]
+          },
+          {
+            "id": 2,
+            "title": "Vulnerability Scan Results",
+            "type": "table",
+            "targets": [
+              {
+                "expr": "trivy_vulnerabilities_total",
+                "legendFormat": "Vulnerabilities"
+              }
+            ]
+          },
+          {
+            "id": 3,
+            "title": "Consciousness Security Level",
+            "type": "gauge",
+            "targets": [
+              {
+                "expr": "warp_speed_consciousness_security_score",
+                "legendFormat": "Security Score"
+              }
+            ],
+            "fieldConfig": {
+              "defaults": {
+                "min": 0,
+                "max": 100,
+                "thresholds": {
+                  "steps": [
+                    {"color": "red", "value": 0},
+                    {"color": "yellow", "value": 50},
+                    {"color": "green", "value": 80}
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+
+---
+# Service Account for Falco
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: falco-service-account
+  namespace: warp-speed-security
+
+---
+# ClusterRole for Falco
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: falco-cluster-role
+rules:
+- apiGroups: [""]
+  resources: ["nodes", "pods", "services", "namespaces"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "daemonsets", "replicasets"]
+  verbs: ["get", "list", "watch"]
+
+---
+# ClusterRoleBinding for Falco
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: falco-cluster-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: falco-cluster-role
+subjects:
+- kind: ServiceAccount
+  name: falco-service-account
+  namespace: warp-speed-security
+
+---
+# Service Account for Trivy Operator
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: trivy-operator-service-account
+  namespace: warp-speed-security
+
+---
+# ClusterRole for Trivy Operator
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: trivy-operator-cluster-role
+rules:
+- apiGroups: [""]
+  resources: ["nodes", "pods", "services", "configmaps", "secrets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "daemonsets", "replicasets", "statefulsets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["batch"]
+  resources: ["jobs", "cronjobs"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["aquasecurity.github.io"]
+  resources: ["*"]
+  verbs: ["*"]
+
+---
+# ClusterRoleBinding for Trivy Operator
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: trivy-operator-cluster-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: trivy-operator-cluster-role
+subjects:
+- kind: ServiceAccount
+  name: trivy-operator-service-account
+  namespace: warp-speed-security
+
+---
+# Pod Security Standards Enforcement
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: warp-speed-security-limits
+  namespace: warp-speed-ha
+spec:
+  limits:
+  - default:
+      cpu: "500m"
+      memory: "1Gi"
+    defaultRequest:
+      cpu: "100m"
+      memory: "256Mi"
+    type: Container
+  - max:
+      cpu: "4"
+      memory: "8Gi"
+    min:
+      cpu: "50m"
+      memory: "128Mi"
+    type: Container
+
+---
+# Resource Quota for Security Compliance
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: warp-speed-security-quota
+  namespace: warp-speed-ha
+spec:
+  hard:
+    requests.cpu: "20"
+    requests.memory: 40Gi
+    limits.cpu: "40"
+    limits.memory: 80Gi
+    persistentvolumeclaims: "20"
+    count/secrets: "50"
+    count/configmaps: "50"
+    count/services: "20"

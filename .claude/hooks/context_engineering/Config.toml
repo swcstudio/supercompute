@@ -1,0 +1,207 @@
+# Context Engineering v7.0 - Unified Hooks Configuration
+# This configuration file controls all aspects of the unified hook system
+
+[context]
+# Path to Context Engineering repository
+repo_path = "/home/ubuntu/src/repos/Context-Engineering"
+
+# Context schema version to use
+schema_version = "7.0"
+
+# Enable automatic context activation on repository load
+auto_activate = true
+
+# Cache duration in seconds (3600 = 1 hour)
+cache_duration = 3600
+
+[performance]
+# Maximum execution time for hooks in seconds
+timeout = 5
+
+# Number of parallel workers for Julia processing
+parallel_workers = 4
+
+# Enable performance monitoring and metrics
+enable_monitoring = true
+
+# Memory limit for Julia processes (MB)
+memory_limit = 2048
+
+# Enable JIT compilation optimization
+jit_optimization = true
+
+[resonance]
+# Target resonance coefficient (0.0 - 1.0)
+target_coefficient = 0.75
+
+# Security-Creativity balance target (golden ratio = 0.618)
+balance_target = 0.618
+
+# Resonance adjustment sensitivity
+adjustment_sensitivity = 0.1
+
+# Enable automatic resonance tuning
+auto_tuning = true
+
+[enhancement]
+# Enable prompt enhancement with v7.0 patterns
+enable_prompt_enhancement = true
+
+# Maximum number of enhancements to add
+max_enhancements = 5
+
+# Cache prompt enhancements
+cache_enhancements = true
+
+# Enhancement cache size (number of entries)
+cache_size = 100
+
+# Languages to prioritize in enhancements
+language_priorities = ["julia", "rust", "typescript", "elixir"]
+
+[business_detection]
+# Enable business opportunity detection
+enable_detection = true
+
+# Minimum confidence threshold for opportunities (0.0 - 1.0)
+confidence_threshold = 0.6
+
+# Maximum opportunities to detect per tool execution
+max_opportunities = 3
+
+# Enable autonomous action triggering
+autonomous_actions = false  # Set to true for full automation
+
+# Daily spending limit for autonomous actions (USD)
+daily_spend_limit = 500.0
+
+[australian_compliance]
+# Enable Australian-specific compliance features
+enable_compliance = true
+
+# Privacy Act 1988 compliance
+privacy_act_compliance = true
+
+# Data sovereignty enforcement
+data_sovereignty = true
+
+# Default Australian region
+default_region = "sydney"
+
+# Available regions
+regions = ["sydney", "melbourne", "brisbane", "perth", "adelaide", "darwin", "hobart"]
+
+[logging]
+# Log directory path
+log_dir = "~/.claude/hooks/context_engineering/logs"
+
+# Log level (debug, info, warn, error)
+log_level = "info"
+
+# Maximum log file size (MB)
+max_log_size = 50
+
+# Number of log files to keep
+log_retention = 7
+
+# Enable detailed performance logging
+performance_logging = true
+
+[hooks]
+# Hook event configurations
+[hooks.pre_start]
+enabled = true
+activate_context = true
+load_knowledge_graph = true
+
+[hooks.pre_tool]
+enabled = true
+enhance_prompts = true
+apply_schema = true
+add_quality_requirements = true
+
+[hooks.post_tool]
+enabled = true
+update_knowledge = true
+detect_opportunities = true
+track_patterns = true
+
+[hooks.context_changed]
+enabled = true
+adjust_resonance = true
+clear_cache = true
+
+[hooks.session_end]
+enabled = true
+generate_analytics = true
+save_metrics = true
+daily_summary = true
+
+[schema_patterns]
+# Schemantics integration patterns
+framework = "schemantics"
+optimization_level = "data_science_specifications"
+performance_mode = "concurrent_execution"
+autonomous_level = "semi_auto"
+context_engineering = "NCDE_v7"
+security_framework = "AART"
+compilation_target = "high_performance_native"
+
+[tool_specific]
+# Tool-specific enhancement settings
+[tool_specific.Write]
+enhance = true
+add_schema_hint = true
+quality_requirements = ["type_safety", "performance_optimization", "schema_compliance"]
+
+[tool_specific.Edit]
+enhance = true
+preserve_style = true
+add_context_patterns = true
+
+[tool_specific.Task]
+enhance = true
+suggest_subagents = true
+architectural_patterns = ["context_v7_patterns", "field_resonance", "australian_compliance"]
+
+[tool_specific.Bash]
+enhance = true
+suggest_julia = true
+performance_hints = true
+parallel_suggestions = true
+
+[tool_specific.WebFetch]
+enhance = true
+add_context_domains = true
+allowed_domains = ["julialang.org", "discourse.julialang.org", "docs.julialang.org"]
+
+[integration]
+# Integration with other systems
+[integration.julia_business_automation]
+enabled = true
+path = "~/.claude/hooks/julia_business_automation"
+
+[integration.schemantics]
+enabled = false  # Set to true if Schemantics is available
+path = "~/src/repos/schemantics"
+
+[integration.nocode_v2]
+enabled = true
+path = "/home/ubuntu/src/repos/Context-Engineering/NOCODEv2"
+
+[experimental]
+# Experimental features (use with caution)
+# Enable quantum semantic patterns
+quantum_semantics = false
+
+# Enable meta-recursive enhancement
+meta_recursion = false
+
+# Enable cross-modal integration
+cross_modal = false
+
+# Enable predictive file generation
+predictive_generation = true
+
+# Enable field evolution tracking
+field_evolution = true
