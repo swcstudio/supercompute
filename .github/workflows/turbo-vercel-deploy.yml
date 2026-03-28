@@ -63,7 +63,7 @@ jobs:
           rust-toolchain: stable
           
       - name: Restore Turbo Cache
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: .turbo
           key: turbo-${{ matrix.target }}-${{ github.sha }}
