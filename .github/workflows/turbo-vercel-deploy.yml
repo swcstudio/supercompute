@@ -79,7 +79,7 @@ jobs:
           turbo run test --filter=${{ matrix.target }} --cache-dir=.turbo -- --coverage
           
       - name: Upload Coverage
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v5
         with:
           files: ./${{ matrix.target }}/coverage/lcov.info
           flags: ${{ matrix.target }}
