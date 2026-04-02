@@ -63,7 +63,7 @@ jobs:
 
       - name: Collect commit data
         id: commits
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const { execSync } = require('child_process');
@@ -146,7 +146,7 @@ jobs:
 
       - name: Analyze commits with Claude
         id: analyze
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         with:
@@ -275,7 +275,7 @@ jobs:
 
       - name: Create pull request
         if: steps.analyze.outputs.result != 'null'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const { execSync } = require('child_process');

@@ -44,7 +44,7 @@ jobs:
           temporaryPublicStorage: true
 
       - name: Format Lighthouse results
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         if: github.event_name == 'pull_request'
         with:
           script: |
@@ -318,7 +318,7 @@ jobs:
           echo "preview_url=https://preview.katalyst-react.dev" >> $GITHUB_OUTPUT
 
       - name: Collect Web Vitals
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const CrUX = require('chrome-ux-report');
@@ -364,7 +364,7 @@ jobs:
           path: performance-artifacts/
 
       - name: Generate performance report
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const fs = require('fs');

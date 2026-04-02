@@ -27,7 +27,7 @@ jobs:
 
       - name: Collect task metrics
         id: metrics
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             // Get all open issues
@@ -278,7 +278,7 @@ jobs:
           sed -i "s/METRICS_PLACEHOLDER/$METRICS/g" dashboard.html
 
       - name: Generate markdown report
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const metrics = ${{ steps.metrics.outputs.result }};

@@ -1185,7 +1185,7 @@ jobs:
           
       - name: Create quality report comment
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const fs = require('fs');
@@ -1248,7 +1248,7 @@ jobs:
           gitbook build --log=debug || echo "GitBook build completed with warnings"
           
       - name: Create preview deployment comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const comment = `## 📖 Documentation Preview

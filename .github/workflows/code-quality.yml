@@ -64,7 +64,7 @@ jobs:
             'shared/src/**/*.{ts,tsx}'
 
       - name: Analyze complexity
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const fs = require('fs');
@@ -188,7 +188,7 @@ jobs:
           npx webpack-bundle-analyzer next/.next/stats.json -m json -r bundle-analysis-next.json
 
       - name: Generate bundle report
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const fs = require('fs');
@@ -340,7 +340,7 @@ jobs:
     if: always()
     steps:
       - name: Generate Quality Report
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const report = `## 🎯 Code Quality Summary

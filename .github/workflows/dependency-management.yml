@@ -37,7 +37,7 @@ jobs:
           echo "audit_exit_code=$?" >> $GITHUB_OUTPUT
 
       - name: Process audit results
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const fs = require('fs');
@@ -233,7 +233,7 @@ jobs:
           npx size-limit --json > size-report.json
 
       - name: Compare with base branch
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const fs = require('fs');

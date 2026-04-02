@@ -266,7 +266,7 @@ jobs:
           
       - name: Update PR Check
         if: steps.review_status.outputs.status == 'changes_requested'
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             github.rest.repos.createCommitStatus({

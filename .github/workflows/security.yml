@@ -253,7 +253,7 @@ jobs:
     if: always()
     steps:
       - name: Generate Security Summary
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const summary = `## 🔒 Security Scan Summary

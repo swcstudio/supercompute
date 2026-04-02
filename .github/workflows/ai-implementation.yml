@@ -35,7 +35,7 @@ jobs:
 
       - name: Create implementation branch
         id: branch
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const issueNumber = ${{ github.event.inputs.issue_number }};
@@ -76,7 +76,7 @@ jobs:
 
       - name: Generate implementation plan
         id: plan
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         with:
@@ -158,7 +158,7 @@ jobs:
         run: npm ci
 
       - name: Implement ${{ matrix.task }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         with:
@@ -260,7 +260,7 @@ jobs:
           ref: ${{ needs.prepare-implementation.outputs.branch_name }}
 
       - name: Create PR
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const issueNumber = ${{ github.event.inputs.issue_number }};

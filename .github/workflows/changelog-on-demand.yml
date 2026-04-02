@@ -63,7 +63,7 @@ jobs:
 
       - name: Gather unreleased changes
         id: changes
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const yaml = require('js-yaml');
@@ -172,7 +172,7 @@ jobs:
 
       - name: Generate changelog with Claude
         id: changelog
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         with:
@@ -242,7 +242,7 @@ jobs:
             return message.content[0].text;
 
       - name: Preview or create PR
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const changelog = `${{ steps.changelog.outputs.result }}`;
